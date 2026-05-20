@@ -90,8 +90,12 @@ describe("ToolCallItem", () => {
   });
 
   it("shows the command and output when expanded", () => {
-    render(<ToolCallItem tool={makeTool()} expanded={true} onToggle={vi.fn()} />);
-    expect(screen.getByText("echo hello")).toBeInTheDocument();
+    const { container } = render(
+      <ToolCallItem tool={makeTool()} expanded={true} onToggle={vi.fn()} />,
+    );
+    // Command appears in both the summary and the expanded body; assert the body block specifically.
+    expect(container.querySelector(".tool-call__cmd")).toBeInTheDocument();
+    expect(container.querySelector(".tool-call__cmd")!.textContent).toBe("echo hello");
     expect(screen.getByText("hello output")).toBeInTheDocument();
   });
 
@@ -178,7 +182,7 @@ describe("ToolCallItem", () => {
   });
 
   it("renders web query when kind is web_search", () => {
-    render(
+    const { container } = render(
       <ToolCallItem
         tool={makeTool({
           kind: "web_search",
@@ -193,11 +197,14 @@ describe("ToolCallItem", () => {
         onToggle={vi.fn()}
       />,
     );
-    expect(screen.getByText("rust serde docs")).toBeInTheDocument();
+    // Query text appears in both the summary and the expanded body; assert the body block.
+    const body = container.querySelector(".tool-call__body");
+    expect(body).toBeInTheDocument();
+    expect(body!.textContent).toContain("rust serde docs");
   });
 
   it("renders patch file paths when kind is patch_apply", () => {
-    render(
+    const { container } = render(
       <ToolCallItem
         tool={makeTool({
           kind: "patch_apply",
@@ -212,7 +219,9 @@ describe("ToolCallItem", () => {
         onToggle={vi.fn()}
       />,
     );
-    expect(screen.getByText("src/main.rs")).toBeInTheDocument();
+    // File path appears in both the summary and the expanded body; assert the patch file entry.
+    expect(container.querySelector(".tool-call__patch-file")).toBeInTheDocument();
+    expect(container.querySelector(".tool-call__patch-file")!.textContent).toContain("src/main.rs");
   });
 
   it("pretty-prints JSON output when output is a JSON object", () => {
@@ -337,5 +346,113 @@ describe("ToolCallItem", () => {
       />,
     );
     expect(screen.queryByText("Open")).not.toBeInTheDocument();
+  });
+
+  describe("inline summary", () => {
+    it("shows command string as summary for exec_command", () => {
+      const { container } = render(
+        <ToolCallItem
+          tool={makeTool({ command: ["bash", "memory.sh", "read", "topic"] })}
+          expanded={false}
+          onToggle={vi.fn()}
+        />,
+      );
+      const summary = container.querySelector(".tool-call__summary");
+      expect(summary).toBeInTheDocument();
+      expect(summary!.textContent).toBe("bash memory.sh read topic");
+    });
+
+    it("shows web_query as summary for web_search", () => {
+      const { container } = render(
+        <ToolCallItem
+          tool={makeTool({
+            kind: "web_search",
+            name: "web_search",
+            command: null,
+            exit_code: null,
+            web_query: "rust async traits",
+          })}
+          expanded={false}
+          onToggle={vi.fn()}
+        />,
+      );
+      const summary = container.querySelector(".tool-call__summary");
+      expect(summary).toBeInTheDocument();
+      expect(summary!.textContent).toBe("rust async traits");
+    });
+
+    it("shows changed file names as summary for patch_apply", () => {
+      const { container } = render(
+        <ToolCallItem
+          tool={makeTool({
+            kind: "patch_apply",
+            name: "apply_patch",
+            command: null,
+            exit_code: null,
+            patch_changes: {
+              "src/lib.rs": { type: "update" },
+              "src/main.rs": { type: "update" },
+            },
+          })}
+          expanded={false}
+          onToggle={vi.fn()}
+        />,
+      );
+      const summary = container.querySelector(".tool-call__summary");
+      expect(summary).toBeInTheDocument();
+      expect(summary!.textContent).toContain("src/lib.rs");
+      expect(summary!.textContent).toContain("src/main.rs");
+    });
+
+    it("shows first string argument as summary for mcp_tool", () => {
+      const { container } = render(
+        <ToolCallItem
+          tool={makeTool({
+            kind: "mcp_tool",
+            name: "search",
+            command: null,
+            exit_code: null,
+            mcp_server: "github",
+            mcp_tool: "search",
+            arguments: { query: "fix memory leak" },
+          })}
+          expanded={false}
+          onToggle={vi.fn()}
+        />,
+      );
+      const summary = container.querySelector(".tool-call__summary");
+      expect(summary).toBeInTheDocument();
+      expect(summary!.textContent).toBe("fix memory leak");
+    });
+
+    it("shows no summary for exec_command with null command", () => {
+      const { container } = render(
+        <ToolCallItem
+          tool={makeTool({ command: null, arguments: {} })}
+          expanded={false}
+          onToggle={vi.fn()}
+        />,
+      );
+      expect(container.querySelector(".tool-call__summary")).not.toBeInTheDocument();
+    });
+
+    it("shows image_prompt as summary for image_generation", () => {
+      const { container } = render(
+        <ToolCallItem
+          tool={makeTool({
+            kind: "image_generation",
+            name: "image_generation",
+            command: null,
+            exit_code: null,
+            image_prompt: "a sunset over mountains",
+          })}
+          expanded={false}
+          onToggle={vi.fn()}
+        />,
+      );
+      const summary = container.querySelector(".tool-call__summary");
+      expect(summary).toBeInTheDocument();
+      expect(summary!.textContent).toBe("a sunset over mountains");
+    });
   });
 });

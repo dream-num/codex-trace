@@ -3000,7 +3000,16 @@ body {
 .tool-call__name {
   font-size: 0.85rem;
   color: var(--text-bright);
+  white-space: nowrap;
+}
+.tool-call__summary {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  color: var(--text-dim);
 }
 .tool-call__mcp-prefix {
   color: var(--text-dim);
@@ -3015,7 +3024,6 @@ body {
 .tool-call__duration {
   font-size: 0.7rem;
   color: var(--text-dim);
-  margin-left: auto;
 }
 .tool-call__chevron {
   font-size: 0.65rem;

@@ -70,6 +70,32 @@ function kindClass(kind: CodexToolCall["kind"]): string {
   }
 }
 
+function summaryText(tool: CodexToolCall): string | null {
+  switch (tool.kind) {
+    case "exec_command":
+      return tool.command ? tool.command.join(" ") : null;
+    case "web_search":
+      return tool.web_query;
+    case "image_generation":
+      return tool.image_prompt;
+    case "patch_apply":
+      if (tool.patch_changes) {
+        return Object.keys(tool.patch_changes).join(", ");
+      }
+      return null;
+    case "mcp_tool": {
+      const args = tool.arguments;
+      if (args && typeof args === "object" && !Array.isArray(args)) {
+        const first = Object.values(args as Record<string, unknown>)[0];
+        return typeof first === "string" ? first : null;
+      }
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
 function looksLikeJson(s: string): boolean {
   const t = s.trimStart();
   if (t[0] !== "{" && t[0] !== "[") return false;
@@ -120,6 +146,7 @@ export function ToolCallItem({
             tool.name
           )}
         </span>
+        {summaryText(tool) && <span className="tool-call__summary">{summaryText(tool)}</span>}
         {tool.exit_code !== null && (
           <span
             className={`tool-call__exit${tool.exit_code !== 0 ? " tool-call__exit--fail" : ""}`}
