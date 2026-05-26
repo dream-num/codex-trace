@@ -32,6 +32,9 @@ pub struct ToolCall {
     pub duration_secs: Option<f64>,
     pub mcp_server: Option<String>,
     pub mcp_tool: Option<String>,
+    /// Codex v0.133.0 (PRs #23353, #23737): plugin_id identifies which plugin
+    /// an MCP tool belongs to. Absent for pre-v0.133.0 sessions and non-MCP calls.
+    pub plugin_id: Option<String>,
     pub patch_success: Option<bool>,
     pub patch_changes: Option<Value>,
     pub web_query: Option<String>,
@@ -51,6 +54,8 @@ pub struct PendingCall {
     pub namespace: Option<String>,
     /// v0.130.0+: direct MCP server name from tool_id.server (bypasses namespace parsing).
     pub mcp_server: Option<String>,
+    /// v0.133.0+: plugin_id from tool_id.plugin_id or mcp_tool_call.plugin_id.
+    pub plugin_id: Option<String>,
 }
 
 /// Builder that collects function_call / custom_tool_call entries and finalizes
@@ -80,6 +85,7 @@ impl ToolCallBuilder {
         arguments_str: &str,
         namespace: Option<String>,
         mcp_server_direct: Option<String>,
+        plugin_id: Option<String>,
     ) {
         let arguments = serde_json::from_str(arguments_str).unwrap_or(Value::Null);
         self.pending.insert(
@@ -90,6 +96,7 @@ impl ToolCallBuilder {
                 input_text: None,
                 namespace,
                 mcp_server: mcp_server_direct,
+                plugin_id,
             },
         );
     }
@@ -104,6 +111,7 @@ impl ToolCallBuilder {
                 input_text: input,
                 namespace: None,
                 mcp_server: None,
+                plugin_id: None,
             },
         );
     }
@@ -129,6 +137,7 @@ impl ToolCallBuilder {
                 duration_secs: None,
                 mcp_server: None,
                 mcp_tool: None,
+                plugin_id: None,
                 patch_success: exit_code.map(|c| c == 0),
                 patch_changes: None,
                 web_query: None,
@@ -219,6 +228,7 @@ impl ToolCallBuilder {
                     duration_secs: None,
                     mcp_server: None,
                     mcp_tool: None,
+                    plugin_id: None,
                     patch_success: None,
                     patch_changes: None,
                     web_query: None,
@@ -248,6 +258,11 @@ impl ToolCallBuilder {
                     _ => (ToolKind::Unknown, None, None),
                 }
             };
+            let plugin_id = if kind == ToolKind::McpTool {
+                pending.plugin_id
+            } else {
+                None
+            };
             self.finalized.push(ToolCall {
                 call_id: call_id.to_string(),
                 kind,
@@ -261,6 +276,7 @@ impl ToolCallBuilder {
                 duration_secs: None,
                 mcp_server,
                 mcp_tool,
+                plugin_id,
                 patch_success: None,
                 patch_changes: None,
                 web_query: None,
@@ -314,6 +330,7 @@ impl ToolCallBuilder {
                 input_text: None,
                 namespace: None,
                 mcp_server: None,
+                plugin_id: None,
             });
 
         let command: Option<Vec<String>> = payload
@@ -352,6 +369,7 @@ impl ToolCallBuilder {
             duration_secs,
             mcp_server: None,
             mcp_tool: None,
+            plugin_id: None,
             patch_success: None,
             patch_changes: None,
             web_query: None,
@@ -374,6 +392,7 @@ impl ToolCallBuilder {
                 input_text: None,
                 namespace: None,
                 mcp_server: None,
+                plugin_id: None,
             });
 
         // Extract server + tool from invocation field, then namespace, then name.
@@ -397,6 +416,7 @@ impl ToolCallBuilder {
         // Extract output text from result.Ok.content[].text
         let output = extract_mcp_output(payload);
         let duration_secs = parse_duration(payload);
+        let plugin_id = pending.plugin_id;
 
         self.finalized.push(ToolCall {
             call_id,
@@ -411,6 +431,7 @@ impl ToolCallBuilder {
             duration_secs,
             mcp_server,
             mcp_tool,
+            plugin_id,
             patch_success: None,
             patch_changes: None,
             web_query: None,
@@ -478,6 +499,7 @@ impl ToolCallBuilder {
                 input_text: None,
                 namespace: None,
                 mcp_server: None,
+                plugin_id: None,
             });
 
         self.finalized.push(ToolCall {
@@ -493,6 +515,7 @@ impl ToolCallBuilder {
             duration_secs: None,
             mcp_server: None,
             mcp_tool: None,
+            plugin_id: None,
             patch_success,
             patch_changes,
             web_query: None,
@@ -521,6 +544,7 @@ impl ToolCallBuilder {
             duration_secs: None,
             mcp_server: None,
             mcp_tool: None,
+            plugin_id: None,
             patch_success: None,
             patch_changes: None,
             web_query: None,
@@ -549,6 +573,7 @@ impl ToolCallBuilder {
             duration_secs: None,
             mcp_server: None,
             mcp_tool: None,
+            plugin_id: None,
             patch_success: None,
             patch_changes: None,
             web_query: None,
@@ -577,6 +602,7 @@ impl ToolCallBuilder {
             duration_secs: None,
             mcp_server: None,
             mcp_tool: None,
+            plugin_id: None,
             patch_success: None,
             patch_changes: None,
             web_query: None,
@@ -614,6 +640,7 @@ impl ToolCallBuilder {
             duration_secs: None,
             mcp_server: None,
             mcp_tool: None,
+            plugin_id: None,
             patch_success: None,
             patch_changes: None,
             web_query: query,
@@ -636,6 +663,7 @@ impl ToolCallBuilder {
                 input_text: None,
                 namespace: None,
                 mcp_server: None,
+                plugin_id: None,
             });
         let output = ["output", "aggregated_output", "stdout"]
             .iter()
@@ -659,6 +687,7 @@ impl ToolCallBuilder {
             duration_secs: parse_duration(payload),
             mcp_server: None,
             mcp_tool: None,
+            plugin_id: None,
             patch_success: None,
             patch_changes: None,
             web_query: None,
@@ -686,6 +715,7 @@ impl ToolCallBuilder {
                 duration_secs: None,
                 mcp_server: None,
                 mcp_tool: None,
+                plugin_id: None,
                 patch_success: None,
                 patch_changes: None,
                 web_query: None,
@@ -739,6 +769,7 @@ fn exec_tool_call_from_pending(
         duration_secs: parsed_output.duration_secs,
         mcp_server: None,
         mcp_tool: None,
+        plugin_id: None,
         patch_success: None,
         patch_changes: None,
         web_query: None,
@@ -1067,6 +1098,7 @@ mod tests {
             "call_1".to_string(),
             "exec_command".to_string(),
             r#"{"cmd":"echo hello","workdir":"/tmp"}"#,
+            None,
             None,
             None,
         );
