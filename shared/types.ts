@@ -100,6 +100,8 @@ export interface CodexTurn {
   forked_from_thread_id: string | null;
   /** Codex v0.135.0 (PR #24368): compaction metadata at turn start. Null for pre-v0.135.0 sessions. */
   compaction_meta: CompactionMeta | null;
+  /** Active memories injected at turn start (Codex v0.135.0+, PR #24591). Empty for older sessions. */
+  memories?: string[];
 }
 
 export interface CodexSession {
