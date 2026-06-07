@@ -46,6 +46,12 @@ pub struct ToolCall {
     pub image_prompt: Option<String>,
     pub worker_session: Option<Box<super::session::CodexSession>>,
     pub status: String,
+    /// Codex v0.134.0 (PR #22882): subagent session ID from hook input identity fields.
+    /// Null for parent-agent tool calls and sessions from pre-v0.134.0.
+    pub subagent_id: Option<String>,
+    /// Codex v0.134.0 (PR #22882): subagent human-readable name from hook input identity fields.
+    /// Null for parent-agent tool calls and sessions from pre-v0.134.0.
+    pub subagent_name: Option<String>,
 }
 
 /// A pending (not yet finalized) tool call — waiting for its end event.
@@ -153,6 +159,8 @@ impl ToolCallBuilder {
                 } else {
                     "failed".to_string()
                 },
+                subagent_id: None,
+                subagent_name: None,
             });
         }
     }
@@ -254,6 +262,8 @@ impl ToolCallBuilder {
                     image_prompt,
                     worker_session: None,
                     status: "completed".to_string(),
+                    subagent_id: None,
+                    subagent_name: None,
                 });
                 return;
             }
@@ -280,6 +290,8 @@ impl ToolCallBuilder {
                     image_prompt: None,
                     worker_session: None,
                     status: spawn_agent_status(output),
+                    subagent_id: None,
+                    subagent_name: None,
                 });
                 return;
             }
@@ -309,6 +321,8 @@ impl ToolCallBuilder {
                     image_prompt: None,
                     worker_session: None,
                     status: "completed".to_string(),
+                    subagent_id: None,
+                    subagent_name: None,
                 });
                 return;
             }
@@ -357,6 +371,8 @@ impl ToolCallBuilder {
                 image_prompt: None,
                 worker_session: None,
                 status: "completed".to_string(),
+                subagent_id: None,
+                subagent_name: None,
             });
         }
     }
@@ -429,6 +445,7 @@ impl ToolCallBuilder {
         });
         let status = str_field(payload, "status");
 
+        let (subagent_id, subagent_name) = extract_subagent_identity(payload);
         self.finalized.push(ToolCall {
             call_id,
             kind: ToolKind::ExecCommand,
@@ -450,6 +467,8 @@ impl ToolCallBuilder {
             image_prompt: None,
             worker_session: None,
             status,
+            subagent_id,
+            subagent_name,
         });
     }
 
@@ -490,6 +509,7 @@ impl ToolCallBuilder {
         let output = extract_mcp_output(payload);
         let duration_secs = parse_duration(payload);
         let plugin_id = pending.plugin_id;
+        let (subagent_id, subagent_name) = extract_subagent_identity(payload);
 
         self.finalized.push(ToolCall {
             call_id,
@@ -512,6 +532,8 @@ impl ToolCallBuilder {
             image_prompt: None,
             worker_session: None,
             status: "completed".to_string(),
+            subagent_id,
+            subagent_name,
         });
     }
 
@@ -575,6 +597,7 @@ impl ToolCallBuilder {
                 plugin_id: None,
             });
 
+        let (subagent_id, subagent_name) = extract_subagent_identity(payload);
         self.finalized.push(ToolCall {
             call_id,
             kind: ToolKind::PatchApply,
@@ -596,13 +619,17 @@ impl ToolCallBuilder {
             image_prompt: None,
             worker_session: None,
             status: str_field(payload, "status"),
+            subagent_id,
+            subagent_name,
         });
     }
 
     /// Finalize with collab_agent_spawn_end event.
     pub fn finalize_spawn(&mut self, event_type: &str, payload: &Value) {
         let call_id = str_field(payload, "call_id");
-        let pending_name = self.pending.remove(&call_id).map(|p| p.name);
+        let pending = self.pending.remove(&call_id);
+        let pending_name = pending.as_ref().map(|p| p.name.clone());
+        let (subagent_id, subagent_name) = extract_subagent_identity(payload);
 
         self.finalized.push(ToolCall {
             call_id,
@@ -625,13 +652,17 @@ impl ToolCallBuilder {
             image_prompt: None,
             worker_session: None,
             status: str_field(payload, "status"),
+            subagent_id,
+            subagent_name,
         });
     }
 
     /// Finalize with collab_waiting_end event.
     pub fn finalize_wait(&mut self, event_type: &str, payload: &Value) {
         let call_id = str_field(payload, "call_id");
-        let pending_name = self.pending.remove(&call_id).map(|p| p.name);
+        let pending = self.pending.remove(&call_id);
+        let pending_name = pending.as_ref().map(|p| p.name.clone());
+        let (subagent_id, subagent_name) = extract_subagent_identity(payload);
 
         self.finalized.push(ToolCall {
             call_id,
@@ -654,13 +685,17 @@ impl ToolCallBuilder {
             image_prompt: None,
             worker_session: None,
             status: "completed".to_string(),
+            subagent_id,
+            subagent_name,
         });
     }
 
     /// Finalize with collab_close_end event.
     pub fn finalize_close(&mut self, event_type: &str, payload: &Value) {
         let call_id = str_field(payload, "call_id");
-        let pending_name = self.pending.remove(&call_id).map(|p| p.name);
+        let pending = self.pending.remove(&call_id);
+        let pending_name = pending.as_ref().map(|p| p.name.clone());
+        let (subagent_id, subagent_name) = extract_subagent_identity(payload);
 
         self.finalized.push(ToolCall {
             call_id,
@@ -683,13 +718,16 @@ impl ToolCallBuilder {
             image_prompt: None,
             worker_session: None,
             status: "completed".to_string(),
+            subagent_id,
+            subagent_name,
         });
     }
 
     /// Finalize web_search (no call_id pairing — best-effort).
     pub fn add_web_search(&mut self, event_type: &str, payload: &Value) {
         let call_id = str_field(payload, "call_id");
-        let pending_name = self.pending.remove(&call_id).map(|p| p.name);
+        let pending = self.pending.remove(&call_id);
+        let pending_name = pending.as_ref().map(|p| p.name.clone());
         let query = payload
             .get("query")
             .and_then(|v| v.as_str())
@@ -699,6 +737,7 @@ impl ToolCallBuilder {
             .and_then(|a| a.get("url"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
+        let (subagent_id, subagent_name) = extract_subagent_identity(payload);
 
         self.finalized.push(ToolCall {
             call_id,
@@ -721,6 +760,8 @@ impl ToolCallBuilder {
             image_prompt: None,
             worker_session: None,
             status: "completed".to_string(),
+            subagent_id,
+            subagent_name,
         });
     }
 
@@ -748,6 +789,7 @@ impl ToolCallBuilder {
             "completed"
         }
         .to_string();
+        let (subagent_id, subagent_name) = extract_subagent_identity(payload);
 
         self.finalized.push(ToolCall {
             call_id,
@@ -770,6 +812,8 @@ impl ToolCallBuilder {
             image_prompt: None,
             worker_session: None,
             status,
+            subagent_id,
+            subagent_name,
         });
     }
 
@@ -796,6 +840,7 @@ impl ToolCallBuilder {
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string())
             });
+        let (subagent_id, subagent_name) = extract_subagent_identity(payload);
         self.finalized.push(ToolCall {
             call_id,
             kind: ToolKind::Unknown,
@@ -817,6 +862,8 @@ impl ToolCallBuilder {
             image_prompt: None,
             worker_session: None,
             status: str_field(payload, "status"),
+            subagent_id,
+            subagent_name,
         });
     }
 
@@ -845,6 +892,8 @@ impl ToolCallBuilder {
                 image_prompt: None,
                 worker_session: None,
                 status: "unknown".to_string(),
+                subagent_id: None,
+                subagent_name: None,
             });
         }
         // Remove Unknown entries that share a call_id with a properly classified end-event entry.
@@ -899,6 +948,8 @@ fn exec_tool_call_from_pending(
         image_prompt: None,
         worker_session: None,
         status: parsed_output.status,
+        subagent_id: None,
+        subagent_name: None,
     }
 }
 
@@ -1088,6 +1139,25 @@ fn push_unique(values: &mut Vec<String>, value: String) {
     }
 }
 
+/// Extract subagent identity from a tool-call end-event payload.
+///
+/// Added in Codex v0.134.0 (PR #22882): `subagent_id` and `subagent_name` are now
+/// injected into PostToolUse hook input payloads and logged as part of tool call end
+/// events, enabling per-tool multi-agent attribution in the parent session's JSONL.
+fn extract_subagent_identity(payload: &Value) -> (Option<String>, Option<String>) {
+    let id = payload
+        .get("subagent_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let name = payload
+        .get("subagent_name")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    (id, name)
+}
+
 /// Reconstruct MCP server + tool from the `namespace` field and function `name`.
 ///
 /// OpenAI encodes MCP tools as: namespace = `mcp__<server>__[ns_suffix]`, name = `[_suffix]`.
@@ -1220,7 +1290,7 @@ mod tests {
             r#"{"cmd":"echo hello","workdir":"/tmp"}"#,
             None,
             None,
-            None,
+            None, // plugin_id
         );
 
         // v0.132.0 exec_command_end: only aggregated_output, no formatted_output
@@ -1311,6 +1381,115 @@ mod tests {
         assert!(
             !old_out.contains("research preview"),
             "banner text leaked into output"
+        );
+    }
+
+    // Codex v0.134.0 (PR #22882): subagent identity fields added to hook input payloads.
+    // exec_command_end, mcp_tool_call_end, and other end events now optionally carry
+    // `subagent_id` and `subagent_name` so that tool calls can be attributed to the
+    // subagent that executed them in multi-agent sessions.
+    //
+    // The parser must:
+    //   1. Expose the fields on ToolCall when present in the end event payload.
+    //   2. Propagate them from function_call (PendingCall) when present there instead.
+    //   3. Default both to None for pre-v0.134.0 sessions and parent-agent tool calls.
+
+    #[test]
+    fn v0134_exec_command_end_with_subagent_identity_populates_tool_call() {
+        let mut builder = ToolCallBuilder::new();
+        builder.add_function_call(
+            "call_exec_sub".to_string(),
+            "exec_command".to_string(),
+            r#"{"cmd":"echo subagent","workdir":"/tmp"}"#,
+            None,
+            None,
+            None, // plugin_id
+        );
+
+        // v0.134.0 exec_command_end: carries subagent identity
+        let payload = json!({
+            "call_id": "call_exec_sub",
+            "aggregated_output": "subagent\n",
+            "exit_code": 0,
+            "status": "completed",
+            "duration": {"secs": 0, "nanos": 10_000_000u64},
+            "subagent_id": "worker-session-abc",
+            "subagent_name": "Parfit"
+        });
+        builder.finalize_exec("exec_command_end", &payload);
+
+        assert_eq!(builder.finalized.len(), 1);
+        let tool = &builder.finalized[0];
+        assert_eq!(tool.output.as_deref(), Some("subagent\n"));
+        assert_eq!(tool.exit_code, Some(0));
+        assert_eq!(tool.subagent_id.as_deref(), Some("worker-session-abc"));
+        assert_eq!(tool.subagent_name.as_deref(), Some("Parfit"));
+    }
+
+    #[test]
+    fn v0134_mcp_tool_call_end_with_subagent_identity_populates_tool_call() {
+        // Codex v0.134.0 (PR #22882): subagent_id/subagent_name are present on PostToolUse
+        // hook input data, which is included in mcp_tool_call_end event payloads. The parser
+        // must extract these fields from the end event and populate ToolCall accordingly.
+        let mut builder = ToolCallBuilder::new();
+        builder.add_function_call(
+            "call_mcp_sub".to_string(),
+            "get_pr".to_string(),
+            r#"{}"#,
+            Some("mcp__github".to_string()),
+            None,
+            None, // plugin_id
+        );
+
+        // mcp_tool_call_end carries subagent identity in PostToolUse hook data
+        let payload = json!({
+            "call_id": "call_mcp_sub",
+            "result": {"Ok": {"content": [{"type": "text", "text": "PR info"}]}},
+            "subagent_id": "worker-session-xyz",
+            "subagent_name": "Noether"
+        });
+        builder.finalize_mcp("mcp_tool_call_end", &payload);
+
+        assert_eq!(builder.finalized.len(), 1);
+        let tool = &builder.finalized[0];
+        assert_eq!(tool.subagent_id.as_deref(), Some("worker-session-xyz"));
+        assert_eq!(tool.subagent_name.as_deref(), Some("Noether"));
+        assert_eq!(tool.output.as_deref(), Some("PR info"));
+    }
+
+    #[test]
+    fn v0134_absent_subagent_fields_default_to_none() {
+        // Pre-v0.134.0 sessions and parent-agent tool calls must have None for both
+        // subagent fields — existing logic must be backward-compatible.
+        let mut builder = ToolCallBuilder::new();
+        builder.add_function_call(
+            "call_no_sub".to_string(),
+            "exec_command".to_string(),
+            r#"{"cmd":"ls","workdir":"/tmp"}"#,
+            None,
+            None,
+            None, // plugin_id
+        );
+
+        let payload = json!({
+            "call_id": "call_no_sub",
+            "aggregated_output": "file.txt\n",
+            "exit_code": 0,
+            "status": "completed",
+            "duration": {"secs": 0, "nanos": 5_000_000u64}
+        });
+        builder.finalize_exec("exec_command_end", &payload);
+
+        assert_eq!(builder.finalized.len(), 1);
+        let tool = &builder.finalized[0];
+        // Both fields must be None for pre-v0.134.0 sessions.
+        assert!(
+            tool.subagent_id.is_none(),
+            "subagent_id must be None when absent"
+        );
+        assert!(
+            tool.subagent_name.is_none(),
+            "subagent_name must be None when absent"
         );
     }
 
