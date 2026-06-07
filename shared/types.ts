@@ -57,6 +57,8 @@ export type ToolKind =
   | "close_agent"
   /** multi-agent v2: assign_task (Codex < v0.136.0) or followup_task (≥ v0.136.0) */
   | "followup_task"
+  /** Codex v0.136.0 (PR #24962): shell hook outputs from pre/post-tool lifecycle hooks. */
+  | "shell_hook"
   | "unknown";
 
 export interface CodexToolCall {

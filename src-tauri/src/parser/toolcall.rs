@@ -17,6 +17,8 @@ pub enum ToolKind {
     CloseAgent,
     /// multi-agent v2 task assignment: `assign_task` (Codex < v0.136.0) or `followup_task` (≥ v0.136.0)
     FollowupTask,
+    /// Codex v0.136.0 (PR #24962): shell hook outputs from pre/post-tool lifecycle hooks.
+    ShellHook,
     Unknown,
 }
 
@@ -722,6 +724,55 @@ impl ToolCallBuilder {
         });
     }
 
+    /// Finalize a shell_hook_output event (Codex v0.136.0, PR #24962).
+    ///
+    /// The v0.136.0 tightened schema requires: call_id, hook_type, stdout, exit_code.
+    /// Fields that were previously null (metadata, stderr) are now absent — read only
+    /// the stable fields so older null-padded payloads also parse correctly.
+    pub fn finalize_shell_hook(&mut self, payload: &Value) {
+        let call_id = str_field(payload, "call_id");
+        let hook_type = str_field(payload, "hook_type");
+        let stdout = payload
+            .get("stdout")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        let exit_code = payload
+            .get("exit_code")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32);
+        let duration_secs = parse_duration(payload);
+        let status = if exit_code.map(|c| c != 0).unwrap_or(false) {
+            "failed"
+        } else {
+            "completed"
+        }
+        .to_string();
+
+        self.finalized.push(ToolCall {
+            call_id,
+            kind: ToolKind::ShellHook,
+            name: hook_type,
+            arguments: Value::Object(serde_json::Map::new()),
+            input_text: None,
+            output: stdout,
+            exit_code,
+            command: None,
+            cwd: None,
+            duration_secs,
+            mcp_server: None,
+            mcp_tool: None,
+            plugin_id: None,
+            patch_success: None,
+            patch_changes: None,
+            web_query: None,
+            web_url: None,
+            image_prompt: None,
+            worker_session: None,
+            status,
+        });
+    }
+
     /// Catch-all for any unrecognised *_end event — preserves name from pending.
     pub fn finalize_unknown_end(&mut self, event_type: &str, payload: &Value) {
         let call_id = str_field(payload, "call_id");
@@ -1120,6 +1171,7 @@ fn extract_mcp_output(payload: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{parse_exec_function_output, parse_mcp_namespace, ToolCallBuilder, ToolKind};
+    use serde_json::json;
 
     #[test]
     fn namespace_with_tool_prefix_keeps_full_namespace_as_server() {
@@ -1161,9 +1213,6 @@ mod tests {
     // must not require `formatted_output` to be present.
     #[test]
     fn exec_command_end_v0132_reads_aggregated_output_without_formatted_output() {
-        use super::super::super::parser::toolcall::ToolCallBuilder;
-        use serde_json::json;
-
         let mut builder = ToolCallBuilder::new();
         builder.add_function_call(
             "call_1".to_string(),
@@ -1265,6 +1314,77 @@ mod tests {
         );
     }
 
+    // Codex v0.136.0 (PR #24962): shell hook output events with the tightened schema.
+    // The v0.136.0 schema enforces: call_id, hook_type, stdout, exit_code.
+    // Fields previously present as null (metadata, stderr) are now absent entirely.
+
+    #[test]
+    fn shell_hook_output_v0136_pre_exec_classified_as_shell_hook() {
+        let mut builder = ToolCallBuilder::new();
+        // v0.136.0 strict schema: no metadata or stderr fields
+        let payload = json!({
+            "call_id": "hook-call-1",
+            "hook_type": "pre_exec",
+            "stdout": "hook ran ok\n",
+            "exit_code": 0,
+            "duration": {"secs": 0, "nanos": 5_000_000u64}
+        });
+        builder.finalize_shell_hook(&payload);
+
+        assert_eq!(builder.finalized.len(), 1);
+        let tc = &builder.finalized[0];
+        assert_eq!(tc.kind, ToolKind::ShellHook);
+        assert_eq!(tc.call_id, "hook-call-1");
+        assert_eq!(tc.name, "pre_exec");
+        assert_eq!(tc.output.as_deref(), Some("hook ran ok\n"));
+        assert_eq!(tc.exit_code, Some(0));
+        assert_eq!(tc.status, "completed");
+        assert!(tc.duration_secs.is_some());
+    }
+
+    #[test]
+    fn shell_hook_output_v0136_post_exec_failed_hook() {
+        let mut builder = ToolCallBuilder::new();
+        let payload = json!({
+            "call_id": "hook-call-2",
+            "hook_type": "post_exec",
+            "stdout": "hook failed with error\n",
+            "exit_code": 1,
+            "duration": {"secs": 0, "nanos": 2_000_000u64}
+        });
+        builder.finalize_shell_hook(&payload);
+
+        assert_eq!(builder.finalized.len(), 1);
+        let tc = &builder.finalized[0];
+        assert_eq!(tc.kind, ToolKind::ShellHook);
+        assert_eq!(tc.name, "post_exec");
+        assert_eq!(tc.exit_code, Some(1));
+        assert_eq!(tc.status, "failed");
+    }
+
+    #[test]
+    fn shell_hook_output_v0136_absent_fields_not_null() {
+        // v0.136.0 tightening: previously-null fields (metadata, stderr) are now absent.
+        // Verify finalize_shell_hook does not panic when those fields are absent.
+        let mut builder = ToolCallBuilder::new();
+        let payload = json!({
+            "call_id": "hook-call-3",
+            "hook_type": "pre_mcp",
+            "stdout": "",
+            "exit_code": 0
+            // no duration, no metadata, no stderr — strict v0.136.0 schema
+        });
+        builder.finalize_shell_hook(&payload);
+
+        assert_eq!(builder.finalized.len(), 1);
+        let tc = &builder.finalized[0];
+        assert_eq!(tc.kind, ToolKind::ShellHook);
+        assert_eq!(tc.name, "pre_mcp");
+        assert!(tc.output.is_none()); // empty stdout → None
+        assert!(tc.duration_secs.is_none());
+        assert_eq!(tc.status, "completed");
+    }
+
     // Codex v0.135.0 (PR #24652): plain image wrapper spans removed from session output.
     // Image content is now emitted bare (e.g. {"type":"image_url",...}) rather than wrapped
     // in {"type":"image_span","content":[...]}. The image_generation function call must be
@@ -1273,8 +1393,6 @@ mod tests {
 
     #[test]
     fn image_generation_classified_as_image_generation_kind() {
-        use super::super::super::parser::toolcall::{ToolCallBuilder, ToolKind};
-
         let mut builder = ToolCallBuilder::new();
         builder.add_function_call(
             "call_img".to_string(),
@@ -1306,8 +1424,6 @@ mod tests {
 
     #[test]
     fn image_generation_with_no_prompt_argument_yields_none_image_prompt() {
-        use super::super::super::parser::toolcall::{ToolCallBuilder, ToolKind};
-
         let mut builder = ToolCallBuilder::new();
         builder.add_function_call(
             "call_img2".to_string(),
@@ -1327,8 +1443,6 @@ mod tests {
 
     #[test]
     fn image_generation_with_non_empty_output_preserves_output() {
-        use super::super::super::parser::toolcall::{ToolCallBuilder, ToolKind};
-
         let mut builder = ToolCallBuilder::new();
         builder.add_function_call(
             "call_img3".to_string(),

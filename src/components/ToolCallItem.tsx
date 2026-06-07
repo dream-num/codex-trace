@@ -12,6 +12,7 @@ import {
   WaitIcon,
   CloseAgentIcon,
   FollowupTaskIcon,
+  HookIcon,
   UnknownToolIcon,
   WarningIcon,
   PopoutIcon,
@@ -47,6 +48,8 @@ function kindIcon(kind: CodexToolCall["kind"], failed: boolean) {
       return <CloseAgentIcon />;
     case "followup_task":
       return <FollowupTaskIcon />;
+    case "shell_hook":
+      return <HookIcon />;
     default:
       return <UnknownToolIcon />;
   }
@@ -69,6 +72,8 @@ function kindClass(kind: CodexToolCall["kind"]): string {
     case "close_agent":
     case "followup_task":
       return "tool-call--collab";
+    case "shell_hook":
+      return "tool-call--hook";
     default:
       return "tool-call--unknown";
   }
