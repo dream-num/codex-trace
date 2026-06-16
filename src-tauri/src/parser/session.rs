@@ -1521,4 +1521,40 @@ mod tests {
             "image_file_path must be None when file_path is absent"
         );
     }
+
+    // Codex v0.139.0 (PRs #24118, #27084): tool/connector input schemas preserve
+    // oneOf/allOf instead of flattening. parse_session must handle session_meta entries
+    // with complex input_schema arrays without panic.
+
+    #[test]
+    fn v0139_session_with_complex_tool_schemas_produces_correct_tool_calls() {
+        let tmp = tempdir().unwrap();
+        let path = tmp
+            .path()
+            .join("rollout-2026-06-09T10-02-00-v0139toolcall.jsonl");
+        std::fs::write(
+            &path,
+            [
+                r#"{"timestamp":"2026-06-09T10:02:00Z","type":"session_meta","payload":{"id":"v0139-toolcall-session","timestamp":"2026-06-09T10:02:00Z","cwd":"/project","cli_version":"0.139.0","model_provider":"openai","tools":[{"name":"exec_command","input_schema":{"type":"object","properties":{"cmd":{"type":"string"},"workdir":{"oneOf":[{"type":"string"},{"type":"null"}]}},"required":["cmd"]}}]}}"#,
+                r#"{"timestamp":"2026-06-09T10:02:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+                r#"{"timestamp":"2026-06-09T10:02:02Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"echo hello\",\"workdir\":\"/project\"}","call_id":"call-v0139-1"}}"#,
+                r#"{"timestamp":"2026-06-09T10:02:03Z","type":"event_msg","payload":{"type":"exec_command_end","call_id":"call-v0139-1","aggregated_output":"hello\n","exit_code":0,"status":"completed","duration":{"secs":0,"nanos":50000000}}}"#,
+                r#"{"timestamp":"2026-06-09T10:02:04Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1749466924.0}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        let session = parse_session(&path).unwrap();
+        assert_eq!(session.id, "v0139-toolcall-session");
+        assert_eq!(session.cli_version.as_deref(), Some("0.139.0"));
+        assert_eq!(session.turns.len(), 1);
+        assert_eq!(session.turns[0].tool_calls.len(), 1);
+        let tool = &session.turns[0].tool_calls[0];
+        assert_eq!(tool.name, "exec_command");
+        assert_eq!(tool.output.as_deref(), Some("hello\n"));
+        assert_eq!(tool.exit_code, Some(0));
+        assert_eq!(tool.status, "completed");
+        assert!(!session.is_ongoing);
+    }
 }

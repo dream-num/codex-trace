@@ -1362,7 +1362,7 @@ mod tests {
             None,
             None,
         );
-        builder.add_function_call_output("call_close", r#"{"status":"ok"}"#);
+        builder.add_function_call_output("call_close", r#"{"status":"ok"}"#, None);
 
         assert_eq!(builder.finalized.len(), 1);
         let tool = &builder.finalized[0];
@@ -1382,7 +1382,7 @@ mod tests {
             None,
             None,
         );
-        builder.add_function_call_output("call_interrupt", r#"{"status":"ok"}"#);
+        builder.add_function_call_output("call_interrupt", r#"{"status":"ok"}"#, None);
 
         assert_eq!(builder.finalized.len(), 1);
         let tool = &builder.finalized[0];
