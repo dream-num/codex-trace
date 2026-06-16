@@ -1034,4 +1034,22 @@ mod tests {
         assert_eq!(e.payload["cli_version"], "0.139.0");
         assert!(e.payload.get("tools").is_some());
     }
+
+    // Codex v0.136.0: `codex archive` / `codex unarchive` append session_archived and
+    // session_unarchived entries to the JSONL file.
+
+    #[test]
+    fn v0136_session_archived_event_parses_correctly() {
+        let line = r#"{"timestamp":"2026-06-01T12:00:00Z","type":"session_archived","payload":{}}"#;
+        let e = RawEntry::parse(line).expect("session_archived must parse");
+        assert_eq!(e.entry_type, "session_archived");
+    }
+
+    #[test]
+    fn v0136_session_unarchived_event_parses_correctly() {
+        let line =
+            r#"{"timestamp":"2026-06-01T13:00:00Z","type":"session_unarchived","payload":{}}"#;
+        let e = RawEntry::parse(line).expect("session_unarchived must parse");
+        assert_eq!(e.entry_type, "session_unarchived");
+    }
 }
