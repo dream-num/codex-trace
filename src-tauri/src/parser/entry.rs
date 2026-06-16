@@ -782,6 +782,36 @@ mod tests {
         assert_eq!(meta.payload["id"], "v0135-img-session");
     }
 
+    // Codex v0.132.0 (PR #23123): `codex exec resume --output-schema` emits response_items with
+    // type "structured_output". The RawEntry parser must pass these through without panic.
+    // Downstream, handle_response_item (turn.rs) extracts the content as final_answer.
+
+    #[test]
+    fn v0132_structured_output_response_item_parses_correctly() {
+        let line = r#"{"timestamp":"2026-05-20T10:00:03Z","type":"response_item","payload":{"type":"structured_output","content":{"result":"done","count":42},"output_schema":{"type":"object","properties":{"result":{"type":"string"},"count":{"type":"integer"}}}}}"#;
+        let e = RawEntry::parse(line).expect("structured_output response_item must parse");
+        assert_eq!(e.entry_type, "response_item");
+        assert_eq!(e.payload["type"], "structured_output");
+        assert_eq!(e.payload["content"]["result"], "done");
+        assert_eq!(e.payload["content"]["count"], 42);
+    }
+
+    #[test]
+    fn v0132_session_meta_with_output_schema_field_parses_correctly() {
+        // session_meta from a session started with --output-schema carries an output_schema
+        // field in its payload. The loosely-typed RawEntry model ignores unknown fields, so
+        // this must parse without panic and produce the correct entry_type.
+        let line = r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-schema-session","timestamp":"2026-05-20T10:00:00Z","cwd":"/tmp","cli_version":"0.132.0","output_schema":{"type":"object","properties":{"result":{"type":"string"}}}}}"#;
+        let e = RawEntry::parse(line).expect("session_meta with output_schema must parse");
+        assert_eq!(e.entry_type, "session_meta");
+        assert_eq!(e.payload["id"], "v0132-schema-session");
+        assert_eq!(e.payload["cli_version"], "0.132.0");
+        assert!(
+            e.payload.get("output_schema").is_some(),
+            "output_schema field must be accessible via payload"
+        );
+    }
+
     // Codex v0.136.0 (PR #24962): shell hook output event schemas tightened.
     // hook output events are now emitted as event_msg entries with type "shell_hook_output".
     // The strict schema requires call_id, hook_type, stdout, exit_code; previously nullable
@@ -810,6 +840,50 @@ mod tests {
         // These fields are absent in the v0.136.0 strict schema — must not be present
         assert!(e.payload.get("metadata").is_none());
         assert!(e.payload.get("stderr").is_none());
+    }
+
+    // Codex v0.132.0 (PR #23123): `codex exec resume --output-schema` produces structured
+    // JSON output items. A "structured_output" response_item carries a JSON-validated
+    // content object as its payload. RawEntry must parse these without panicking.
+
+    #[test]
+    fn v0132_exec_resume_output_schema_structured_output_item_parses_correctly() {
+        let line = r#"{"timestamp":"2026-05-20T10:00:03Z","type":"response_item","payload":{"type":"structured_output","content":{"result":"ok","value":42}}}"#;
+        let e = RawEntry::parse(line).expect("structured_output response_item must parse");
+        assert_eq!(e.entry_type, "response_item");
+        assert_eq!(e.payload["type"], "structured_output");
+        assert_eq!(e.payload["content"]["result"], "ok");
+        assert_eq!(e.payload["content"]["value"], 42);
+    }
+
+    #[test]
+    fn v0132_exec_resume_output_schema_full_session_entry_types_parse_correctly() {
+        // Regression guard: all standard JSONL entry types plus structured_output must
+        // parse correctly for a v0.132.0 session run with --output-schema.
+        let lines = [
+            r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-schema-session","timestamp":"2026-05-20T10:00:00Z","cwd":"/tmp","cli_version":"0.132.0","model_provider":"openai"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:02Z","type":"turn_context","payload":{"model":"gpt-5","cwd":"/tmp"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:03Z","type":"response_item","payload":{"type":"structured_output","content":{"result":"done","items":["a","b"]}}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:04Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1748606404.0}}"#,
+        ];
+        let expected_types = [
+            "session_meta",
+            "event_msg",
+            "turn_context",
+            "response_item",
+            "event_msg",
+        ];
+        for (line, expected) in lines.iter().zip(expected_types.iter()) {
+            let entry = RawEntry::parse(line).expect("parse failed");
+            assert_eq!(entry.entry_type, *expected, "wrong type for: {line}");
+        }
+        let meta = RawEntry::parse(lines[0]).unwrap();
+        assert_eq!(meta.payload["cli_version"], "0.132.0");
+        // The structured_output item content must be accessible via the payload.
+        let schema_item = RawEntry::parse(lines[3]).unwrap();
+        assert_eq!(schema_item.payload["type"], "structured_output");
+        assert_eq!(schema_item.payload["content"]["result"], "done");
     }
 
     #[test]

@@ -957,6 +957,35 @@ fn handle_response_item(
             }
         }
 
+        // Codex v0.132.0 (PR #23123): `codex exec resume --output-schema` emits the final
+        // model response as a "structured_output" response_item whose `content` field holds a
+        // JSON object validated against the provided schema. Without this handler the item falls
+        // through to `_ => {}` and the turn's final_answer is never populated.
+        "structured_output" => {
+            if let Some(turn) = turns.get_mut(tid) {
+                if turn.final_answer.is_none() {
+                    let text = extract_item_content(payload);
+                    if !text.is_empty() {
+                        turn.final_answer = Some(text);
+                    }
+                }
+            }
+        }
+
+        // Handle assistant message response_items. This includes schema-validated JSON content
+        // from `codex exec resume --output-schema` (Codex v0.132.0+, PR #23123) where `content`
+        // is a JSON object rather than a plain string.
+        "message" if payload.get("role").and_then(|v| v.as_str()) == Some("assistant") => {
+            if let Some(turn) = turns.get_mut(tid) {
+                if turn.final_answer.is_none() {
+                    let text = extract_item_content(payload);
+                    if !text.is_empty() {
+                        turn.final_answer = Some(text);
+                    }
+                }
+            }
+        }
+
         _ => {}
     }
 }
@@ -1028,6 +1057,26 @@ fn handle_turn_context(
                 turn.memories = memories;
             }
         }
+    }
+}
+
+/// Extract text from a response_item `content` field.
+/// Handles:
+/// - Plain strings (standard message content)
+/// - Content arrays (`[{"type":"text","text":"..."}]`, OpenAI format)
+/// - JSON objects (schema-validated responses from `codex exec resume --output-schema`,
+///   Codex v0.132.0+, PR #23123)
+fn extract_item_content(payload: &Value) -> String {
+    let content = payload.get("content").or_else(|| payload.get("output"));
+    match content {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join(""),
+        Some(v) if !v.is_null() => serde_json::to_string(v).unwrap_or_default(),
+        _ => String::new(),
     }
 }
 
@@ -2895,5 +2944,201 @@ mod tests {
         assert_eq!(turns[0].status, TurnStatus::Complete);
         assert_eq!(turns[0].tool_calls.len(), 1);
         assert_eq!(turns[0].tool_calls[0].kind, ToolKind::ShellHook);
+    }
+
+    // Codex v0.132.0 (PR #23123): `codex exec resume --output-schema` produces structured
+    // JSON output items. The final model response is emitted as a "structured_output"
+    // response_item with a JSON object in `content`. codex-trace must capture this as the
+    // turn's final_answer so exec sessions with --output-schema display correctly.
+
+    #[test]
+    fn v0132_structured_output_response_item_sets_final_answer() {
+        let entries = entries(&[
+            r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-schema","timestamp":"2026-05-20T10:00:00Z","cwd":"/tmp","cli_version":"0.132.0"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:02Z","type":"response_item","payload":{"type":"structured_output","content":{"result":"success","count":42}}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1748606403.0}}"#,
+        ]);
+
+        let turns = build_turns(&entries);
+        assert_eq!(turns.len(), 1);
+        let turn = &turns[0];
+        assert!(
+            turn.final_answer.is_some(),
+            "structured_output response_item must populate final_answer"
+        );
+        let answer = turn.final_answer.as_ref().unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(answer).expect("final_answer must be valid JSON");
+        assert_eq!(v["result"], "success");
+        assert_eq!(v["count"], 42);
+    }
+
+    #[test]
+    fn v0132_structured_output_with_string_content_sets_final_answer() {
+        // structured_output may carry a plain string in the content field rather than a
+        // JSON object when the schema resolves to a primitive type.
+        let entries = entries(&[
+            r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-str-output","timestamp":"2026-05-20T10:00:00Z","cwd":"/tmp","cli_version":"0.132.0"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:02Z","type":"response_item","payload":{"type":"structured_output","content":"schema-validated plain text"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1748606403.0}}"#,
+        ]);
+        let turns = build_turns(&entries);
+        assert_eq!(turns.len(), 1);
+        assert_eq!(
+            turns[0].final_answer.as_deref(),
+            Some("schema-validated plain text"),
+            "string-typed structured_output content must be stored verbatim"
+        );
+    }
+
+    #[test]
+    fn v0132_structured_output_does_not_overwrite_existing_final_answer() {
+        // task_complete.last_agent_message takes precedence; a structured_output response_item
+        // that arrives before task_complete must not clobber the answer set by agent_message.
+        let entries = entries(&[
+            r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-priority","timestamp":"2026-05-20T10:00:00Z","cwd":"/tmp","cli_version":"0.132.0"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"prior final answer","phase":"final_answer"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:03Z","type":"response_item","payload":{"type":"structured_output","content":{"should":"not overwrite"}}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:04Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1748606404.0}}"#,
+        ]);
+        let turns = build_turns(&entries);
+        assert_eq!(turns.len(), 1);
+        assert_eq!(
+            turns[0].final_answer.as_deref(),
+            Some("prior final answer"),
+            "structured_output must not overwrite an already-set final_answer"
+        );
+    }
+
+    #[test]
+    fn v0132_structured_output_output_field_fallback_sets_final_answer() {
+        // Some structured_output items may use `output` instead of `content`.
+        let entries = entries(&[
+            r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-output-field","timestamp":"2026-05-20T10:00:00Z","cwd":"/tmp","cli_version":"0.132.0"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:02Z","type":"response_item","payload":{"type":"structured_output","output":{"status":"ok","value":99}}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1748606403.0}}"#,
+        ]);
+        let turns = build_turns(&entries);
+        assert_eq!(turns.len(), 1);
+        let answer = turns[0]
+            .final_answer
+            .as_deref()
+            .expect("final_answer must be set from output field of structured_output");
+        assert!(answer.contains("ok"));
+        assert!(answer.contains("99"));
+    }
+
+    #[test]
+    fn v0132_message_response_item_with_json_object_content_sets_final_answer() {
+        // Codex v0.132.0+ (PR #23123): `--output-schema` sessions may emit the structured
+        // response as a "message" response_item where `content` is a JSON object rather than
+        // a plain string. This must populate final_answer so the turn is not left empty.
+        let entries = entries(&[
+            r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-msg-schema","timestamp":"2026-05-20T10:00:00Z"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":{"status":"done","items":["a","b"]}}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1748606403.0}}"#,
+        ]);
+
+        let turns = build_turns(&entries);
+        assert_eq!(turns.len(), 1);
+        let turn = &turns[0];
+        assert!(
+            turn.final_answer.is_some(),
+            "message response_item with JSON content must populate final_answer"
+        );
+        let answer = turn.final_answer.as_ref().unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(answer).expect("final_answer must be valid JSON");
+        assert_eq!(v["status"], "done");
+        assert_eq!(v["items"][0], "a");
+    }
+
+    #[test]
+    fn v0132_message_response_item_with_plain_string_sets_final_answer() {
+        // Plain-text assistant message response_items (common in exec sessions) must
+        // also populate final_answer.
+        let entries = entries(&[
+            r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-msg-plain","timestamp":"2026-05-20T10:00:00Z"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":"Task completed successfully."}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1748606403.0}}"#,
+        ]);
+
+        let turns = build_turns(&entries);
+        assert_eq!(turns.len(), 1);
+        assert_eq!(
+            turns[0].final_answer.as_deref(),
+            Some("Task completed successfully.")
+        );
+    }
+
+    #[test]
+    fn v0132_task_complete_last_agent_message_overrides_message_item_final_answer() {
+        // task_complete.last_agent_message always overwrites final_answer (fires last in
+        // the stream). This test ensures the priority order is preserved.
+        let entries = entries(&[
+            r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-override","timestamp":"2026-05-20T10:00:00Z"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":"preliminary answer"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1748606403.0,"last_agent_message":"definitive answer from task_complete"}}"#,
+        ]);
+
+        let turns = build_turns(&entries);
+        assert_eq!(turns.len(), 1);
+        assert_eq!(
+            turns[0].final_answer.as_deref(),
+            Some("definitive answer from task_complete")
+        );
+    }
+
+    #[test]
+    fn v0132_user_message_response_item_does_not_set_final_answer() {
+        // Only "assistant" role message response_items should populate final_answer;
+        // user-role items must not.
+        let entries = entries(&[
+            r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-user-msg","timestamp":"2026-05-20T10:00:00Z"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":"user request here"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1748606403.0}}"#,
+        ]);
+
+        let turns = build_turns(&entries);
+        assert_eq!(turns.len(), 1);
+        assert!(
+            turns[0].final_answer.is_none(),
+            "user-role message must not set final_answer"
+        );
+    }
+
+    #[test]
+    fn v0132_all_standard_entry_types_plus_structured_output_parse_correctly() {
+        // Regression guard: a v0.132.0 --output-schema session must parse all four
+        // standard entry types plus the structured_output response_item without error,
+        // and the turn must reach Complete status with final_answer populated.
+        let entries = entries(&[
+            r#"{"timestamp":"2026-05-20T10:00:00Z","type":"session_meta","payload":{"id":"v0132-schema-full","timestamp":"2026-05-20T10:00:00Z","cwd":"/tmp","cli_version":"0.132.0","model_provider":"openai"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:02Z","type":"turn_context","payload":{"model":"gpt-5","cwd":"/tmp"}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:03Z","type":"response_item","payload":{"type":"structured_output","content":{"status":"ok","value":99}}}"#,
+            r#"{"timestamp":"2026-05-20T10:00:04Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1748606404.0}}"#,
+        ]);
+
+        let turns = build_turns(&entries);
+        assert_eq!(turns.len(), 1);
+        let turn = &turns[0];
+        assert_eq!(turn.status, TurnStatus::Complete);
+        assert_eq!(turn.model.as_deref(), Some("gpt-5"));
+        let answer = turn
+            .final_answer
+            .as_ref()
+            .expect("structured_output must set final_answer");
+        let v: serde_json::Value = serde_json::from_str(answer).expect("must be valid JSON");
+        assert_eq!(v["status"], "ok");
+        assert_eq!(v["value"], 99);
     }
 }
