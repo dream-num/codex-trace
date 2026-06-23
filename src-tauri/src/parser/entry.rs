@@ -1286,4 +1286,27 @@ mod tests {
         // originator field is passed through unchanged regardless of transport layer
         assert_eq!(meta.payload["originator"], "exec-server");
     }
+
+    // Codex v0.140.0 (PRs #27070, #27071, #27703): /import command writes lifecycle
+    // event_msg entries; v0.141.0 (PR #28008) adds external_agent_import_result.
+
+    #[test]
+    fn v0140_agent_context_import_event_msg_parses_correctly() {
+        let line = r#"{"timestamp":"2026-06-15T10:00:00Z","type":"event_msg","payload":{"type":"agent_context_imported","source":"claude-code","thread_count":3,"token_count":12400}}"#;
+        let e = RawEntry::parse(line).expect("agent_context_imported event_msg must parse");
+        assert_eq!(e.entry_type, "event_msg");
+        assert_eq!(
+            e.payload.get("type").and_then(|t| t.as_str()),
+            Some("agent_context_imported")
+        );
+        assert_eq!(e.payload["source"], "claude-code");
+    }
+
+    #[test]
+    fn v0141_external_agent_import_result_response_item_parses_correctly() {
+        let line = r#"{"timestamp":"2026-06-15T10:00:01Z","type":"response_item","payload":{"type":"external_agent_import_result","source":"claude-code","imported_thread_ids":["t1","t2"],"total_tokens":12400}}"#;
+        let e = RawEntry::parse(line).expect("external_agent_import_result must parse");
+        assert_eq!(e.payload["type"], "external_agent_import_result");
+        assert_eq!(e.payload["total_tokens"], 12400);
+    }
 }
