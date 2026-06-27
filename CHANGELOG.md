@@ -4,6 +4,49 @@ All notable changes to codex-trace are documented here. Versions follow
 [semantic versioning](https://semver.org/), and this file follows
 [Keep a Changelog](https://keepachangelog.com/) conventions.
 
+## [0.3.0] — 2026-06-28
+
+Patch tool calls now read like a real code review, and the parser keeps pace with the
+newest Codex CLI releases (v0.140.0 and v0.141.0). If you saw raw `*** Begin Patch`
+text instead of a diff, or sessions from the latest Codex builds showed missing context
+tools, unrecognized MCP tool calls, or spurious turns around `/import`, this release
+addresses those.
+
+### Added
+
+- **`apply_patch` renders as a red/green diff**
+  ([`426ea62`](https://github.com/PixelPaw-Labs/codex-trace/commit/426ea62)). An
+  `apply_patch` tool call now shows a per-file, per-hunk diff with `+`/`-` markers,
+  red/green line tinting, and word-level highlighting on the spans that actually
+  changed — instead of the raw patch body. It falls back to the previous
+  `patch_changes` / raw views when the input isn't a recognizable patch.
+
+### Fixed
+
+- **Tool calls from the latest Codex builds are classified correctly**
+  ([`83cc23b`](https://github.com/PixelPaw-Labs/codex-trace/commit/83cc23b)). Codex
+  v0.141.0 emits dynamic tool namespaces (MCP, connector, plugin) in `ThreadStart` /
+  `task_started` events, so calls now arrive as qualified `mcp:server/tool_name` names
+  or need a registry lookup. codex-trace reads the `dynamic_tools` registry and parses
+  the qualified format, so these tools are recognized as MCP calls rather than mislabeled.
+- **Context-budget tools are recognized**
+  ([`c212d71`](https://github.com/PixelPaw-Labs/codex-trace/commit/c212d71)). Codex
+  v0.140.0's `token_budget_context`, `context_remaining`, and `context_window` calls
+  are now classified as context queries instead of falling through as unknown tools.
+- **`/import` sessions parse cleanly**
+  ([`3f73060`](https://github.com/PixelPaw-Labs/codex-trace/commit/3f73060)). Codex
+  v0.140.0's `/import` command writes new lifecycle entries (e.g.
+  `external_agent_imported`) before the first `task_started`, and v0.141.0 adds an
+  `external_agent_import_result` response item. These are now handled explicitly, so
+  imported-agent context no longer produces spurious synthetic turns or corrupts the
+  turn it sits in.
+- **IPC commands are granted explicitly in the ACL**
+  ([`7e330bd`](https://github.com/PixelPaw-Labs/codex-trace/commit/7e330bd)). The app
+  previously relied on Tauri implicitly permitting its own commands. Each command is now
+  granted through an explicit permission set, with a regression test that cross-checks
+  the handlers against the ACL in both directions — closing a path where a wired-up
+  command could fail at runtime with "Command not allowed by ACL".
+
 ## [0.2.0] — 2026-06-16
 
 A readability upgrade for the turn view plus a sweep of parser compatibility with the
@@ -60,6 +103,7 @@ in order, alongside the tool calls it interleaves with.
   text now uses fixed `px` sizing (13px prose) instead of `rem`, so type no longer
   rescales with browser/OS root font settings.
 
+[0.3.0]: https://github.com/PixelPaw-Labs/codex-trace/releases/tag/v0.3.0
 [0.2.0]: https://github.com/PixelPaw-Labs/codex-trace/releases/tag/v0.2.0
 
 ## [0.1.0] — 2026-06-08
