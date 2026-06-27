@@ -1,0 +1,58 @@
+[default]
+description = "Default permissions for all codex-trace commands"
+permissions = [
+  "allow-load-session",
+  "allow-watch-session",
+  "allow-unwatch-session",
+  "allow-list-sessions",
+  "allow-watch-picker",
+  "allow-unwatch-picker",
+  "allow-get-settings",
+  "allow-set-sessions-dir",
+  "allow-switch-to-browser",
+]
+
+[[permission]]
+identifier = "allow-load-session"
+description = "Allow loading a session file"
+commands.allow = ["load_session"]
+
+[[permission]]
+identifier = "allow-watch-session"
+description = "Allow watching a session file for changes"
+commands.allow = ["watch_session"]
+
+[[permission]]
+identifier = "allow-unwatch-session"
+description = "Allow stopping session file watching"
+commands.allow = ["unwatch_session"]
+
+[[permission]]
+identifier = "allow-list-sessions"
+description = "Allow listing sessions in the sessions directory"
+commands.allow = ["list_sessions"]
+
+[[permission]]
+identifier = "allow-watch-picker"
+description = "Allow watching the picker for changes"
+commands.allow = ["watch_picker"]
+
+[[permission]]
+identifier = "allow-unwatch-picker"
+description = "Allow stopping picker watching"
+commands.allow = ["unwatch_picker"]
+
+[[permission]]
+identifier = "allow-get-settings"
+description = "Allow reading app settings"
+commands.allow = ["get_settings"]
+
+[[permission]]
+identifier = "allow-set-sessions-dir"
+description = "Allow setting the sessions directory"
+commands.allow = ["set_sessions_dir"]
+
+[[permission]]
+identifier = "allow-switch-to-browser"
+description = "Allow switching to browser mode"
+commands.allow = ["switch_to_browser"]
