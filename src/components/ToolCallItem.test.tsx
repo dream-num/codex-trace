@@ -233,6 +233,37 @@ describe("ToolCallItem", () => {
     expect(container.querySelector(".tool-call__patch-file")!.textContent).toContain("src/main.rs");
   });
 
+  it("renders a structured red/green diff from an apply_patch input_text", () => {
+    const patch = [
+      "*** Begin Patch",
+      "*** Update File: src/main.rs",
+      "@@",
+      " fn main() {",
+      '-    println!("old");',
+      '+    println!("new");',
+      " }",
+      "*** End Patch",
+    ].join("\n");
+    const { container } = render(
+      <ToolCallItem
+        tool={makeTool({
+          kind: "patch_apply",
+          name: "apply_patch",
+          input_text: patch,
+          command: null,
+          exit_code: null,
+        })}
+        expanded={true}
+        onToggle={vi.fn()}
+      />,
+    );
+    expect(container.querySelector(".tool-call__patch-file")!.textContent).toContain("src/main.rs");
+    expect(container.querySelector(".tool-call__diff-line--removed")!.textContent).toContain("old");
+    expect(container.querySelector(".tool-call__diff-line--added")!.textContent).toContain("new");
+    // Word-level highlight isolates the changed token.
+    expect(container.querySelector(".tool-call__diff-word")).toBeInTheDocument();
+  });
+
   it("pretty-prints JSON output when output is a JSON object", () => {
     const { container } = render(
       <ToolCallItem

@@ -3079,6 +3079,48 @@ body {
   max-height: 300px;
   margin: 4px 0 0;
 }
+.tool-call__diff code {
+  font-family: inherit;
+}
+.tool-call__diff-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tool-call__diff-line--context {
+  color: var(--text-dim);
+}
+.tool-call__diff-line--removed {
+  background: rgba(215, 95, 95, 0.15);
+  color: #d75f5f;
+}
+.tool-call__diff-line--added {
+  background: rgba(95, 175, 95, 0.15);
+  color: #5faf5f;
+}
+/* Intra-line word-level change: a stronger tint over the exact changed span. */
+.tool-call__diff-line--removed .tool-call__diff-word {
+  background: rgba(215, 95, 95, 0.4);
+  border-radius: 2px;
+}
+.tool-call__diff-line--added .tool-call__diff-word {
+  background: rgba(95, 175, 95, 0.4);
+  border-radius: 2px;
+}
+.tool-call__diff-marker {
+  display: inline-block;
+  width: 14px;
+  user-select: none;
+  opacity: 0.7;
+}
+.tool-call__patch-file-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.tool-call__patch-path {
+  color: var(--text-secondary);
+}
 .tool-call__worker-btn {
   background: none;
   border: 1px solid var(--collab-badge);
