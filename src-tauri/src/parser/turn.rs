@@ -491,6 +491,37 @@ fn handle_event_msg(
             }
         }
 
+        // Codex v0.142.0 (PRs #28746, #28494, #28707, #29423, #29255): token budget events.
+        // token_budget_abort fires when the rollout budget is fully exhausted; it terminates
+        // the turn just like turn_aborted. The reason field carries "token_budget_exhausted"
+        // or similar — record it so the UI can explain why the turn stopped.
+        "token_budget_abort" => {
+            let turn_id_field = payload
+                .get("turn_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(current_turn_id.as_deref().unwrap_or(""))
+                .to_string();
+            let target_id = if !turn_id_field.is_empty() {
+                turn_id_field
+            } else {
+                current_turn_id.clone().unwrap_or_default()
+            };
+            if let Some(turn) = turns.get_mut(&target_id) {
+                turn.status = TurnStatus::Aborted;
+                turn.aborted_reason = payload
+                    .get("reason")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| Some("token_budget_exhausted".to_string()));
+                turn.completed_at = payload
+                    .get("completed_at")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as u64)
+                    .or_else(|| entry.timestamp.as_deref().and_then(parse_timestamp_secs));
+                turn.duration_ms = payload.get("duration_ms").and_then(|v| v.as_u64());
+            }
+        }
+
         "inference_stream_cancelled" => {
             let turn_id_field = payload
                 .get("turn_id")
@@ -699,6 +730,11 @@ fn handle_event_msg(
         | "agent_context_imported"
         | "external_agent_import_started"
         | "external_agent_imported" => {}
+
+        // Codex v0.142.0 (PRs #28746, #28494, #28707, #29423, #29255): token budget events.
+        // token_budget_reminder is emitted when usage crosses a threshold percentage.
+        // No turn-building semantics — silently skip.
+        "token_budget_reminder" => {}
 
         _ => {}
     }
@@ -1010,6 +1046,11 @@ fn handle_response_item(
         // voice subsystem removed in PR #27801. Will never appear in sessions recorded
         // with Codex ≥ v0.140.0, but old archives may still contain them. Silently skip.
         "speech_append" | "realtime_handoff" | "audio_transcript" => {}
+
+        // Codex v0.142.0 (PRs #28746, #28494, #28707, #29423, #29255): token budget events.
+        // token_budget_compaction_reminder is a response_item that suggests compaction
+        // due to budget proximity. No turn-building semantics — silently skip.
+        "token_budget_compaction_reminder" => {}
 
         // Codex v0.132.0 (PR #23123): `codex exec resume --output-schema` emits the final
         // model response as a "structured_output" response_item whose `content` field holds a
