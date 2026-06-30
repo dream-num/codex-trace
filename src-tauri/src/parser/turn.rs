@@ -997,6 +997,11 @@ fn handle_response_item(
         // response_item that records token/cost totals for an imported agent context.
         "external_agent_import_result" => {}
 
+        // Pre-Codex v0.140.0 archive-only response_items from the experimental /realtime
+        // voice subsystem removed in PR #27801. Will never appear in sessions recorded
+        // with Codex ≥ v0.140.0, but old archives may still contain them. Silently skip.
+        "speech_append" | "realtime_handoff" | "audio_transcript" => {}
+
         // Codex v0.132.0 (PR #23123): `codex exec resume --output-schema` emits the final
         // model response as a "structured_output" response_item whose `content` field holds a
         // JSON object validated against the provided schema. Without this handler the item falls
@@ -3832,5 +3837,36 @@ mod tests {
             turns[0].final_answer.as_deref(),
             Some("Hello from legacy turn")
         );
+    }
+
+    // Codex v0.140.0 (PR #27801): /realtime voice subsystem removed. Sessions recorded
+    // before that may contain `speech_append`, `realtime_handoff`, `audio_transcript`
+    // response_items. They carry no turn-building semantics and must be silently skipped.
+
+    #[test]
+    fn pre_v0140_realtime_voice_items_in_archive_session_are_silently_skipped() {
+        let lines = [
+            r#"{"timestamp":"2026-03-01T10:00:00Z","type":"session_meta","payload":{"id":"v0139-rt","timestamp":"2026-03-01T10:00:00Z","cwd":"/project","cli_version":"0.139.0","model_provider":"openai"}}"#,
+            r#"{"timestamp":"2026-03-01T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-03-01T10:00:02Z","type":"response_item","payload":{"type":"speech_append","audio_b64":"AAAA"}}"#,
+            r#"{"timestamp":"2026-03-01T10:00:03Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"call-rt","arguments":"{\"cmd\":\"echo ok\"}"}}"#,
+            r#"{"timestamp":"2026-03-01T10:00:04Z","type":"response_item","payload":{"type":"realtime_handoff","handoff_id":"h1"}}"#,
+            r#"{"timestamp":"2026-03-01T10:00:05Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-rt","output":"ok\n"}}"#,
+            r#"{"timestamp":"2026-03-01T10:00:06Z","type":"response_item","payload":{"type":"audio_transcript","transcript":"hello there"}}"#,
+            r#"{"timestamp":"2026-03-01T10:00:07Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1740825607.0}}"#,
+        ];
+        let parsed: Vec<_> = lines
+            .iter()
+            .filter_map(|line| crate::parser::entry::RawEntry::parse(line))
+            .collect();
+        let turns = build_turns(&parsed);
+        // Exactly one turn — voice items must not create synthetic turns
+        assert_eq!(turns.len(), 1);
+        let turn = &turns[0];
+        // The real exec_command tool call must survive intact
+        assert_eq!(turn.tool_calls.len(), 1);
+        assert_eq!(turn.tool_calls[0].name, "exec_command");
+        assert_eq!(turn.tool_calls[0].output.as_deref(), Some("ok\n"));
+        assert_eq!(turn.status, super::TurnStatus::Complete);
     }
 }
