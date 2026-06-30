@@ -67,6 +67,10 @@ pub struct CompactionMeta {
     /// What triggered the compaction: `"auto"` (threshold-based) or `"manual"` (user-requested).
     /// Null for sessions that predate this field.
     pub compaction_trigger: Option<String>,
+    /// Codex v0.142.0 (PR #29256): opaque ID linking this context window to its compaction
+    /// ancestor, enabling lineage reconstruction across compaction boundaries.
+    /// Null for sessions predating v0.142.0.
+    pub lineage_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -314,6 +318,11 @@ fn handle_event_msg(
                     .map(|s| s.to_string()),
                 compaction_trigger: c
                     .get("compaction_trigger")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+                lineage_id: c
+                    .get("lineage_id")
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string()),
