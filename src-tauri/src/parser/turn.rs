@@ -712,13 +712,24 @@ fn handle_response_item(
         None => return,
     };
 
-    let tid = match current_turn_id {
+    // Codex v0.142.2 (PR #28360): turn_id is now stored in ResponseItem metadata.
+    // Prefer the explicit metadata.turn_id over positional current_turn_id — the
+    // metadata field allows correct correlation even when response items are emitted
+    // for non-contiguous turns.
+    let metadata_turn_id = payload
+        .get("metadata")
+        .and_then(|m| m.get("turn_id"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let tid: &str = match metadata_turn_id.as_deref().or(current_turn_id.as_deref()) {
         Some(t) => t,
         None => return,
     };
 
     let builder = tool_builders
-        .entry(tid.clone())
+        .entry(tid.to_string())
         .or_insert_with(ToolCallBuilder::new);
 
     match item_type {
@@ -3773,5 +3784,53 @@ mod tests {
         assert_eq!(turn.agent_messages.len(), 1);
         assert_eq!(turn.agent_messages[0].text, "Processing your request.");
         assert_eq!(turn.model.as_deref(), Some("gpt-5"));
+    }
+
+    // Codex v0.142.2 (PR #28360): turn_id field added to ResponseItem metadata.
+
+    #[test]
+    fn v0142_response_item_with_metadata_turn_id_attributed_to_correct_turn() {
+        let lines = [
+            r#"{"timestamp":"2026-06-25T10:00:00Z","type":"session_meta","payload":{"id":"v0142-meta-tid","timestamp":"2026-06-25T10:00:00Z","cwd":"/project","cli_version":"0.142.2","model_provider":"openai"}}"#,
+            r#"{"timestamp":"2026-06-25T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-06-25T10:00:02Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1751000002.0}}"#,
+            r#"{"timestamp":"2026-06-25T10:00:03Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2"}}"#,
+            r#"{"timestamp":"2026-06-25T10:00:04Z","type":"response_item","payload":{"type":"message","role":"assistant","content":"Answer from turn 1","metadata":{"turn_id":"turn-1"}}}"#,
+            r#"{"timestamp":"2026-06-25T10:00:05Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-2","completed_at":1751000005.0}}"#,
+        ];
+        let parsed: Vec<_> = lines
+            .iter()
+            .filter_map(|line| crate::parser::entry::RawEntry::parse(line))
+            .collect();
+        let turns = build_turns(&parsed);
+        assert_eq!(turns.len(), 2);
+        let turn1 = turns.iter().find(|t| t.turn_id == "turn-1").unwrap();
+        let turn2 = turns.iter().find(|t| t.turn_id == "turn-2").unwrap();
+        assert_eq!(
+            turn1.final_answer.as_deref(),
+            Some("Answer from turn 1"),
+            "metadata.turn_id must override positional current_turn_id"
+        );
+        assert_eq!(turn2.final_answer, None);
+    }
+
+    #[test]
+    fn v0142_response_item_without_metadata_turn_id_falls_back_to_current_turn_id() {
+        let lines = [
+            r#"{"timestamp":"2026-06-25T10:00:00Z","type":"session_meta","payload":{"id":"v0142-no-meta-tid","timestamp":"2026-06-25T10:00:00Z","cwd":"/project","cli_version":"0.141.0","model_provider":"openai"}}"#,
+            r#"{"timestamp":"2026-06-25T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-06-25T10:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":"Hello from legacy turn"}}"#,
+            r#"{"timestamp":"2026-06-25T10:00:03Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1751000003.0}}"#,
+        ];
+        let parsed: Vec<_> = lines
+            .iter()
+            .filter_map(|line| crate::parser::entry::RawEntry::parse(line))
+            .collect();
+        let turns = build_turns(&parsed);
+        assert_eq!(turns.len(), 1);
+        assert_eq!(
+            turns[0].final_answer.as_deref(),
+            Some("Hello from legacy turn")
+        );
     }
 }
