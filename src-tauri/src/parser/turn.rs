@@ -892,6 +892,22 @@ fn handle_response_item(
             builder.backfill_patch_result(&call_id, success, changes);
         }
 
+        // Codex v0.142.2 (PR #29486): MCP tools are now discovered via tool-search calls
+        // rather than enumerated upfront in task_started.dynamic_tools. The model issues a
+        // tool_search_call mid-turn; matching tools are returned in tool_search_call_output.
+        // Merge the discovered tools into the current turn's dynamic tool registry so
+        // subsequent function_call entries are classified as McpTool correctly.
+        "tool_search_call" => {
+            // Search request — tool definitions arrive in the paired tool_search_call_output.
+        }
+
+        "tool_search_call_output" => {
+            let extra = parse_tool_search_results(payload);
+            if !extra.is_empty() {
+                builder.extend_dynamic_tool_registry(extra);
+            }
+        }
+
         // Codex v0.129.0 (PR #20677): MCP tool calls are now emitted as first-class
         // response_item turn entries with dedicated types instead of reusing function_call
         // with an mcp__ namespace. Wire them into the existing ToolCallBuilder paths so
@@ -1275,6 +1291,61 @@ fn parse_dynamic_tools(payload: &Value) -> HashMap<String, (String, String)> {
             }
         } else if let Some((tool_type, rest)) = name.split_once(':') {
             // Qualified name format: "mcp:server/tool_name"
+            if let Some((server, tool)) = rest.split_once('/') {
+                if !tool_type.is_empty() && !server.is_empty() && !tool.is_empty() {
+                    registry.insert(
+                        tool.to_string(),
+                        (tool_type.to_string(), server.to_string()),
+                    );
+                }
+            }
+        }
+    }
+    registry
+}
+
+/// Parse tool definitions from a `tool_search_call_output` payload (Codex v0.142.2+, PR #29486).
+///
+/// The `tools` array may contain entries in the same formats as `dynamic_tools`:
+///   {"name": "my_tool", "server": "my-server"}           → key="my_tool", ("mcp","my-server")
+///   {"name": "my_tool", "namespace": "mcp:my-server"}    → key="my_tool", ("mcp","my-server")
+///   {"name": "mcp:my-server/my_tool"}                    → key="my_tool", ("mcp","my-server")
+fn parse_tool_search_results(payload: &Value) -> HashMap<String, (String, String)> {
+    let Some(tools) = payload.get("tools").and_then(|v| v.as_array()) else {
+        return HashMap::new();
+    };
+    let mut registry = HashMap::new();
+    for item in tools {
+        let Some(name) = item
+            .get("name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        // Explicit server field: {"name": "my_tool", "server": "my-server"}
+        if let Some(server) = item
+            .get("server")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            registry.insert(name.to_string(), ("mcp".to_string(), server.to_string()));
+        } else if let Some(ns) = item
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            // Namespace field: "mcp:server" or "connector:plugin"
+            if let Some((tool_type, server)) = ns.split_once(':') {
+                if !tool_type.is_empty() && !server.is_empty() {
+                    registry.insert(
+                        name.to_string(),
+                        (tool_type.to_string(), server.to_string()),
+                    );
+                }
+            }
+        } else if let Some((tool_type, rest)) = name.split_once(':') {
+            // Qualified name: "mcp:server/tool_name"
             if let Some((server, tool)) = rest.split_once('/') {
                 if !tool_type.is_empty() && !server.is_empty() && !tool.is_empty() {
                     registry.insert(
