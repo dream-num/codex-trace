@@ -4,6 +4,20 @@ export interface GitInfo {
   repository_url?: string;
 }
 
+/** Codex v0.144.0 (PR #30488): a single selectable usage-limit reset credit entry. */
+export interface RateLimitCredit {
+  /** Credit category (e.g. "monthly", "trial"). Null when absent. */
+  type: string | null;
+  /** ISO-8601 expiration timestamp for this credit. Null when absent. */
+  expiration: string | null;
+}
+
+/** Codex v0.144.0 (PR #30488): rate-limit reset credit data from `token_count` events. */
+export interface RateLimitsInfo {
+  /** Selectable credit options. Empty for pre-v0.144.0 sessions. */
+  credits: RateLimitCredit[];
+}
+
 export interface TokenInfo {
   input_tokens: number;
   cached_input_tokens: number;
@@ -12,6 +26,8 @@ export interface TokenInfo {
   total_tokens: number;
   context_window_tokens: number | null;
   model_context_window: number;
+  /** Codex v0.144.0 (PR #30488): rate-limit reset credit data from the same token_count event. Null for pre-v0.144.0 sessions. */
+  rate_limits: RateLimitsInfo | null;
 }
 
 export interface AgentMessage {
@@ -30,6 +46,26 @@ export interface MemorySummary {
   content: string;
   /** Format version. Absent for pre-v0.132.0 sessions (plain-string format). */
   version?: number;
+}
+
+/** Codex v0.144.0 (PR #30488): a single credit option for resetting usage limits. */
+export interface ResetCredit {
+  /** Credit kind, e.g. `"subscription"` or `"purchased"`. Null for pre-v0.144.0 sessions. */
+  type: string | null;
+  /** ISO-8601 expiration timestamp, or null if the credit does not expire. */
+  expiration: string | null;
+}
+
+/** Codex v0.144.0 (PR #30488): rate-limit data from a `token_count` event.
+ * The `rate_limits` field is a sibling of `info` on `token_count` payloads.
+ * Null in pre-v0.144.0 sessions or when the API returns no rate-limit data. */
+export interface RateLimitInfo {
+  /** ISO-8601 timestamp when the usage limit resets. */
+  reset_at: string | null;
+  /** All credits available for redeeming the reset. Populated by Codex v0.144.0+. */
+  reset_credits: ResetCredit[];
+  /** The credit selected for redemption when multiple are available (Codex v0.144.0+). */
+  selected_reset_credit: ResetCredit | null;
 }
 
 /** Codex v0.135.0 (PR #24368): compaction metadata from turn headers. */
@@ -137,6 +173,10 @@ export interface CodexTurn {
   /** Active memories injected at turn start (Codex v0.135.0+, PR #24591).
    * Items carry an optional version field (Codex v0.132.0+, PR #23148). Empty for older sessions. */
   memories?: MemorySummary[];
+  /** Rate-limit data from the most recent `token_count` event (Codex v0.144.0+, PR #30488).
+   * Null for pre-v0.144.0 sessions or when the API returns no rate-limit data.
+   * Absent for cached data serialized before this field was added. */
+  rate_limit_info?: RateLimitInfo | null;
 }
 
 /**
