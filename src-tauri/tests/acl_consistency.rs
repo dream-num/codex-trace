@@ -121,7 +121,12 @@ fn capability_references_the_default_permission_set() {
 #[test]
 fn core_session_commands_are_acl_granted() {
     let granted = acl_granted_commands();
-    for cmd in ["load_session", "list_sessions", "get_settings"] {
+    for cmd in [
+        "list_codex_homes",
+        "load_session",
+        "list_sessions",
+        "get_settings",
+    ] {
         assert!(granted.contains(cmd), "{cmd} must be ACL-granted");
     }
 }

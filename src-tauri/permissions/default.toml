@@ -1,6 +1,7 @@
 [default]
 description = "Default permissions for all codex-trace commands"
 permissions = [
+  "allow-list-codex-homes",
   "allow-load-session",
   "allow-watch-session",
   "allow-unwatch-session",
@@ -11,6 +12,11 @@ permissions = [
   "allow-set-sessions-dir",
   "allow-switch-to-browser",
 ]
+
+[[permission]]
+identifier = "allow-list-codex-homes"
+description = "Allow listing configured Codex homes"
+commands.allow = ["list_codex_homes"]
 
 [[permission]]
 identifier = "allow-load-session"

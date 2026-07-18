@@ -69,6 +69,7 @@ pub async fn start_http_server_headless(state: Arc<AppState>) {
 
 async fn run_server(state: Arc<HttpState>) {
     let mut router = Router::new()
+        .route("/api/codex-homes", get(api_list_codex_homes))
         .route("/api/settings", get(api_get_settings))
         .route("/api/settings/dir", post(api_set_sessions_dir))
         .route("/api/sessions", post(api_discover_sessions))
@@ -130,6 +131,20 @@ fn session_load_error_status(msg: &str) -> axum::http::StatusCode {
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
+
+async fn api_list_codex_homes(State(state): State<Arc<HttpState>>) -> Response {
+    let app_state = app_state(&state);
+    let guard = match app_state.settings.lock() {
+        Ok(g) => g,
+        Err(e) => {
+            return err_response(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        }
+    };
+    match crate::commands::homes::discover_codex_homes(&guard) {
+        Ok(response) => ok_json(&response),
+        Err(error) => err_response(axum::http::StatusCode::INTERNAL_SERVER_ERROR, error),
+    }
+}
 
 async fn api_get_settings(State(state): State<Arc<HttpState>>) -> Response {
     let app_state = app_state(&state);

@@ -1,0 +1,31 @@
+name: Build Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version of the image'
+        required: true
+        default: 'latest'
+
+jobs:
+  build:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: univer-acr-registry.cn-shenzhen.cr.aliyuncs.com
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout
+
+      - name: Login to Aliyun Container Registry (ACR)
+        uses: aliyun/acr-login@v1
+        with:
+          login-server: ${{ env.REGISTRY }}
+          region-id: cn-shenzhen
+          username: "${{ secrets.REGISTRY_USERNAME }}"
+          password: "${{ secrets.REGISTRY_PASSWORD }}"
+
+      - name: Build and Push Docker Image
+        run: |
+          docker build --push -t ${{ env.REGISTRY }}/devops/codex-trace:${{ github.event.inputs.version }} .

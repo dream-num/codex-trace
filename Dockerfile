@@ -15,12 +15,20 @@
 #     -v "$HOME/.codex/sessions:/home/app/.codex/sessions:ro" \
 #     codex-trace
 #
+# Multi-home run (repeat the read-only mount for each name):
+#   docker run --rm -p 1422:1422 \
+#     -e CODEXTRACE_CODEX_HOMES_ROOT=/app \
+#     -v "/app/discord-test/home/.codex:/app/discord-test/home/.codex:ro" \
+#     -v "/app/slack-test/home/.codex:/app/slack-test/home/.codex:ro" \
+#     codex-trace
+#
 # Then open http://localhost:1422 in a browser.
 #
 # Configurable env vars:
 #   CODEXTRACE_HTTP_HOST   bind host    (default: 0.0.0.0 in this image)
 #   CODEXTRACE_HTTP_PORT   bind port    (default: 1422 in this image)
 #   CODEXTRACE_STATIC_DIR  static dist  (default: /app/dist in this image)
+#   CODEXTRACE_CODEX_HOMES_ROOT  optional root containing <name>/home/.codex mounts
 # =============================================================================
 
 ARG RUST_IMAGE=rust:latest

@@ -52,6 +52,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
+            commands::homes::list_codex_homes,
             commands::session::load_session,
             commands::session::watch_session,
             commands::session::unwatch_session,

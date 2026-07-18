@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../lib/invoke";
 import type { CodexSessionInfo, SettingsResponse } from "../../shared/types";
 import { useTauriEvent } from "./useTauriEvent";
@@ -10,28 +10,48 @@ interface PickerState {
   sessionsDir: string;
 }
 
+const initialPickerState: PickerState = {
+  sessions: [],
+  loading: false,
+  searchQuery: "",
+  sessionsDir: "",
+};
+
 export function usePicker() {
-  const [state, setState] = useState<PickerState>({
-    sessions: [],
-    loading: false,
-    searchQuery: "",
-    sessionsDir: "",
-  });
+  const [state, setState] = useState<PickerState>(initialPickerState);
+  const requestGeneration = useRef(0);
 
   const discoverSessions = useCallback(async (sessionsDir: string) => {
     if (!sessionsDir) return;
-    setState((prev) => ({ ...prev, loading: true, sessionsDir }));
+    const generation = ++requestGeneration.current;
+    setState((prev) => ({ ...prev, sessions: [], loading: true, sessionsDir }));
     try {
       const sessions = await invoke<CodexSessionInfo[]>("list_sessions", { sessionsDir });
+      if (generation !== requestGeneration.current) return;
       setState((prev) => ({ ...prev, sessions, loading: false }));
       try {
         await invoke<void>("watch_picker", { sessionsDir });
+        if (generation !== requestGeneration.current) {
+          await invoke<void>("unwatch_picker");
+        }
       } catch {
         // watcher is optional
       }
     } catch (err) {
       console.error("Failed to discover sessions:", err);
-      setState((prev) => ({ ...prev, loading: false }));
+      if (generation === requestGeneration.current) {
+        setState((prev) => ({ ...prev, loading: false }));
+      }
+    }
+  }, []);
+
+  const resetPicker = useCallback(async () => {
+    requestGeneration.current += 1;
+    setState(initialPickerState);
+    try {
+      await invoke<void>("unwatch_picker");
+    } catch {
+      // watcher is optional
     }
   }, []);
 
@@ -64,6 +84,7 @@ export function usePicker() {
 
   useEffect(() => {
     return () => {
+      requestGeneration.current += 1;
       invoke<void>("unwatch_picker").catch(() => {});
     };
   }, []);
@@ -85,6 +106,7 @@ export function usePicker() {
     sessionsDir: state.sessionsDir,
     setSearchQuery,
     discoverSessions,
+    resetPicker,
     updateSessionOngoing,
   };
 }

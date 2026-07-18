@@ -99,6 +99,30 @@ Or with Docker Compose:
 docker compose up --build
 ```
 
+To expose multiple mounted Codex homes, set a discovery root and mount each home at
+`<root>/<name>/home/.codex`:
+
+```bash
+docker run --rm -p 1422:1422 \
+  -e CODEXTRACE_CODEX_HOMES_ROOT=/app \
+  -v "/app/discord-test/home/.codex:/app/discord-test/home/.codex:ro" \
+  -v "/app/slack-test/home/.codex:/app/slack-test/home/.codex:ro" \
+  -v "/app/slide-test/home/.codex:/app/slide-test/home/.codex:ro" \
+  codex-trace
+```
+
+Opening the page now shows `discord-test`, `slack-test`, and `slide-test`. The
+selection belongs to that browser page, and **Switch Home** returns to the list.
+Only direct children with a readable `home/.codex/sessions` directory are shown.
+
+The included Compose override provides the same three-source layout. Override
+`DISCORD_CODEX_HOME`, `SLACK_CODEX_HOME`, and `SLIDE_CODEX_HOME` when the host paths
+differ:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.multi-home.yml up --build
+```
+
 ## Session format
 
 Codex Trace reads session files from this default path:
@@ -121,11 +145,17 @@ Default sessions directory:
 
 Environment variables for headless and Docker mode:
 
-| Variable                | Default     | Description                    |
-| ----------------------- | ----------- | ------------------------------ |
-| `CODEXTRACE_HTTP_HOST`  | `127.0.0.1` | Bind host                      |
-| `CODEXTRACE_HTTP_PORT`  | `11424`     | Bind port                      |
-| `CODEXTRACE_STATIC_DIR` | —           | Path to built frontend `dist/` |
+| Variable                      | Default     | Description                                                 |
+| ----------------------------- | ----------- | ----------------------------------------------------------- |
+| `CODEXTRACE_HTTP_HOST`        | `127.0.0.1` | Bind host                                                   |
+| `CODEXTRACE_HTTP_PORT`        | `11424`     | Bind port                                                   |
+| `CODEXTRACE_STATIC_DIR`       | —           | Path to built frontend `dist/`                              |
+| `CODEXTRACE_CODEX_HOMES_ROOT` | —           | Enables multi-home discovery at `<root>/<name>/home/.codex` |
+
+When `CODEXTRACE_CODEX_HOMES_ROOT` is unset, the existing Settings value or
+`~/.codex/sessions` remains the single automatically selected source. When it is
+set, the discovered mount list is authoritative and the single-directory setting
+is not used.
 
 ## Development
 

@@ -261,4 +261,15 @@ export interface SettingsResponse {
   default_dir: string;
 }
 
-export type ViewState = "picker" | "list" | "detail";
+export interface CodexHome {
+  id: string;
+  name: string;
+  sessions_dir: string;
+}
+
+export interface CodexHomesResponse {
+  homes: CodexHome[];
+  multi_home_enabled: boolean;
+}
+
+export type ViewState = "homes" | "picker" | "list" | "detail";

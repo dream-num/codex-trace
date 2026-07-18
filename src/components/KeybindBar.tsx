@@ -17,6 +17,11 @@ const pickerKeys: KeyHint[] = [
   { key: "/", label: "search" },
 ];
 
+const homeKeys: KeyHint[] = [
+  { key: "j/k", label: "nav" },
+  { key: "Enter", label: "select" },
+];
+
 const listKeys: KeyHint[] = [
   { key: "j/k", label: "nav" },
   { key: "Enter", label: "detail" },
@@ -32,6 +37,8 @@ const detailKeys: KeyHint[] = [
 
 function getKeys(view: ViewState): KeyHint[] {
   switch (view) {
+    case "homes":
+      return homeKeys;
     case "picker":
       return pickerKeys;
     case "list":

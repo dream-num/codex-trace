@@ -1,0 +1,10 @@
+# Optional override for selecting among multiple read-only Codex homes.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.multi-home.yml up --build
+services:
+  codex-trace:
+    environment:
+      CODEXTRACE_CODEX_HOMES_ROOT: /app
+    volumes:
+      - "${DISCORD_CODEX_HOME:-/app/discord-test/home/.codex}:/app/discord-test/home/.codex:ro"
+      - "${SLACK_CODEX_HOME:-/app/slack-test/home/.codex}:/app/slack-test/home/.codex:ro"
+      - "${SLIDE_CODEX_HOME:-/app/slide-test/home/.codex}:/app/slide-test/home/.codex:ro"

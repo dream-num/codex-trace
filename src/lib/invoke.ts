@@ -9,6 +9,7 @@ interface Route {
 }
 
 const routes: Record<string, Route> = {
+  list_codex_homes: { path: "/api/codex-homes" },
   get_settings: { path: "/api/settings" },
   set_sessions_dir: {
     method: "POST",

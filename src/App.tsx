@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import type { ViewState, CodexSessionInfo, CodexToolCall } from "../shared/types";
+import type { ViewState, CodexHome, CodexSessionInfo, CodexToolCall } from "../shared/types";
 import { useSession } from "./hooks/useSession";
-import { usePicker, resolveSessionsDir } from "./hooks/usePicker";
+import { usePicker } from "./hooks/usePicker";
+import { useCodexHomes } from "./hooks/useCodexHomes";
 import { useToggleSet } from "./hooks/useToggleSet";
 import { useKeyboard } from "./hooks/useKeyboard";
 import { SidebarTree } from "./components/SidebarTree";
@@ -14,6 +15,7 @@ import { KeybindBar } from "./components/KeybindBar";
 import { ViewToolbar } from "./components/ViewToolbar";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SettingsModal } from "./components/SettingsModal";
+import { CodexHomeSelector } from "./components/CodexHomeSelector";
 
 function findToolByCallId(tools: CodexToolCall[], callId: string): CodexToolCall | null {
   for (const tool of tools) {
@@ -28,7 +30,7 @@ function findToolByCallId(tools: CodexToolCall[], callId: string): CodexToolCall
 }
 
 export function App() {
-  const [view, setView] = useState<ViewState>("picker");
+  const [view, setView] = useState<ViewState>("homes");
   const [selectedTurn, setSelectedTurn] = useState(0);
   const [pickerSelected, setPickerSelected] = useState(0);
   const [showKeybinds, setShowKeybinds] = useState(true);
@@ -40,6 +42,7 @@ export function App() {
 
   const session = useSession();
   const picker = usePicker();
+  const codexHomes = useCodexHomes();
   const {
     set: expandedTools,
     toggle: toggleTool,
@@ -47,20 +50,62 @@ export function App() {
     addAll: addAllTools,
   } = useToggleSet();
 
-  const { loadSession } = session;
-  const { discoverSessions, updateSessionOngoing } = picker;
+  const { loadSession, resetSession } = session;
+  const { discoverSessions, resetPicker, updateSessionOngoing } = picker;
+  const {
+    selectHome,
+    clearActiveHome,
+    discoverHomes: fetchHomes,
+    setSelectedIndex: setHomeSelectedIndex,
+  } = codexHomes;
 
-  // Auto-discover sessions on mount
+  const resetSourceUi = useCallback(() => {
+    setSelectedTurn(0);
+    setPickerSelected(0);
+    setCollapsedDates(new Set());
+    setWorkerPanelCallId(null);
+    clearTools();
+  }, [clearTools]);
+
+  const handleSelectHome = useCallback(
+    async (home: CodexHome) => {
+      await Promise.all([resetSession(), resetPicker()]);
+      resetSourceUi();
+      selectHome(home);
+      setView("picker");
+      await discoverSessions(home.sessions_dir);
+    },
+    [discoverSessions, resetPicker, resetSession, resetSourceUi, selectHome],
+  );
+
+  const discoverHomes = useCallback(
+    async (autoSelectSingle: boolean) => {
+      const response = await fetchHomes();
+      if (response && autoSelectSingle && response.homes.length === 1) {
+        await handleSelectHome(response.homes[0]);
+      } else {
+        setView("homes");
+      }
+    },
+    [fetchHomes, handleSelectHome],
+  );
+
+  // Existing single-home deployments are auto-selected; multi-home
+  // deployments stop here until the browser chooses a source.
   const discoveredRef = useRef(false);
   useEffect(() => {
     if (discoveredRef.current) return;
     discoveredRef.current = true;
-    resolveSessionsDir()
-      .then((dir) => {
-        if (dir) discoverSessions(dir);
-      })
-      .catch(() => setShowSettings(true));
-  }, [discoverSessions]);
+    void discoverHomes(true);
+  }, [discoverHomes]);
+
+  const handleSwitchHomes = useCallback(async () => {
+    await Promise.all([resetSession(), resetPicker()]);
+    resetSourceUi();
+    clearActiveHome();
+    setView("homes");
+    await fetchHomes();
+  }, [clearActiveHome, fetchHomes, resetPicker, resetSession, resetSourceUi]);
 
   // Sync session watcher ongoing status into picker
   useEffect(() => {
@@ -133,14 +178,23 @@ export function App() {
   // Keyboard navigation
   useKeyboard({
     j: () => {
+      if (view === "homes" && codexHomes.homes.length > 0) {
+        setHomeSelectedIndex(Math.min(codexHomes.selectedIndex + 1, codexHomes.homes.length - 1));
+      }
       if (view === "list") setSelectedTurn((i) => Math.min(i + 1, turns.length - 1));
       if (view === "picker") setPickerSelected((i) => Math.min(i + 1, picker.sessions.length - 1));
     },
     k: () => {
+      if (view === "homes") {
+        setHomeSelectedIndex(Math.max(codexHomes.selectedIndex - 1, 0));
+      }
       if (view === "list") setSelectedTurn((i) => Math.max(i - 1, 0));
       if (view === "picker") setPickerSelected((i) => Math.max(i - 1, 0));
     },
     Enter: () => {
+      if (view === "homes" && codexHomes.homes[codexHomes.selectedIndex]) {
+        void handleSelectHome(codexHomes.homes[codexHomes.selectedIndex]);
+      }
       if (view === "list" && turns.length > 0) handleOpenDetail(selectedTurn);
       if (view === "picker" && picker.sessions.length > 0)
         handleSelectSession(picker.sessions[pickerSelected]);
@@ -161,7 +215,9 @@ export function App() {
       if (view === "detail") setView("list");
       else if (view === "list") setView("picker");
     },
-    ",": () => setShowSettings(true),
+    ",": () => {
+      if (!codexHomes.multiHomeEnabled) setShowSettings(true);
+    },
     "?": () => setShowKeybinds((p) => !p),
   });
 
@@ -176,7 +232,11 @@ export function App() {
       <ViewToolbar
         view={view}
         hasSession={!!session.sessionPath}
+        activeHomeName={codexHomes.activeHome?.name ?? null}
+        canSwitchHomes={codexHomes.homes.length > 1}
+        canOpenSettings={view !== "homes" && !codexHomes.multiHomeEnabled}
         onGoToSessions={goToSessions}
+        onSwitchHomes={() => void handleSwitchHomes()}
         onExpandAll={expandAll}
         onCollapseAll={collapseAll}
         onOpenSettings={() => setShowSettings(true)}
@@ -184,23 +244,38 @@ export function App() {
 
       <div className="app-body">
         {/* Left sidebar */}
-        <div className="app__sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
-          <div className="app__sidebar-header">
-            <span className="app__sidebar-title">SESSIONS</span>
-          </div>
-          <SidebarTree
-            sessions={picker.allSessions}
-            selectedPath={session.sessionPath || null}
-            collapsedDates={collapsedDates}
-            onSelectSession={handleSelectSession}
-            onToggleDate={handleToggleDate}
-          />
-        </div>
+        {view !== "homes" && (
+          <>
+            <div className="app__sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
+              <div className="app__sidebar-header">
+                <span className="app__sidebar-title">SESSIONS</span>
+              </div>
+              <SidebarTree
+                sessions={picker.allSessions}
+                selectedPath={session.sessionPath || null}
+                collapsedDates={collapsedDates}
+                onSelectSession={handleSelectSession}
+                onToggleDate={handleToggleDate}
+              />
+            </div>
 
-        <ResizeHandle onResize={setSidebarWidth} />
+            <ResizeHandle onResize={setSidebarWidth} />
+          </>
+        )}
 
         {/* Main content */}
         <div className="main-content">
+          {view === "homes" && (
+            <CodexHomeSelector
+              homes={codexHomes.homes}
+              loading={codexHomes.loading}
+              error={codexHomes.error}
+              selectedIndex={codexHomes.selectedIndex}
+              onSelect={(home) => void handleSelectHome(home)}
+              onRetry={() => void discoverHomes(true)}
+            />
+          )}
+
           {view === "picker" && (
             <SessionPicker
               sessions={picker.sessions}
@@ -261,7 +336,7 @@ export function App() {
         onToggle={() => setShowKeybinds((p) => !p)}
       />
 
-      {showSettings && (
+      {showSettings && !codexHomes.multiHomeEnabled && (
         <SettingsModal
           onClose={() => setShowSettings(false)}
           onSaved={(dir) => {

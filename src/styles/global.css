@@ -2514,6 +2514,112 @@ body {
 
 /* Session picker */
 /* Session picker — matches reference layout */
+.home-selector {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 100%;
+  overflow-y: auto;
+  padding: 64px 24px;
+}
+.home-selector__panel {
+  width: min(720px, 100%);
+}
+.home-selector__header {
+  margin-bottom: 24px;
+}
+.home-selector__title {
+  color: var(--text-bright);
+  font-size: 22px;
+  font-weight: 600;
+}
+.home-selector__subtitle,
+.home-selector__hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.home-selector__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.home-selector__home {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.home-selector__home:hover,
+.home-selector__home--selected {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+.home-selector__icon {
+  flex-shrink: 0;
+  color: var(--icon-codex);
+  font-size: 22px;
+}
+.home-selector__home-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.home-selector__home-name {
+  color: var(--text-bright);
+  font-size: 14px;
+  font-weight: 600;
+}
+.home-selector__home-path {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-selector__open {
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: 11px;
+}
+.home-selector__status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  border: 1px dashed var(--border);
+  color: var(--text-secondary);
+  text-align: center;
+}
+.home-selector__status--error {
+  color: var(--error);
+}
+.home-selector__retry {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.view-toolbar__home {
+  overflow: hidden;
+  max-width: 240px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .picker {
   display: flex;
   flex-direction: column;
