@@ -45,10 +45,34 @@ const homesResponse = {
 
 describe("App Codex home flow", () => {
   beforeEach(() => {
+    localStorage.clear();
+    delete document.documentElement.dataset.theme;
+    document.documentElement.style.colorScheme = "";
     invokeMock.mockReset().mockResolvedValue(homesResponse);
     resetSessionMock.mockReset().mockResolvedValue(undefined);
     resetPickerMock.mockReset().mockResolvedValue(undefined);
     discoverSessionsMock.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("defaults to dark mode and persists theme changes", async () => {
+    render(<App />);
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    fireEvent.click(screen.getByRole("button", { name: "Switch to light mode" }));
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    expect(document.documentElement.style.colorScheme).toBe("light");
+    expect(localStorage.getItem("codex-trace-theme")).toBe("light");
+    expect(screen.getByRole("button", { name: "Switch to dark mode" })).toBeInTheDocument();
+  });
+
+  it("restores a persisted light theme", () => {
+    localStorage.setItem("codex-trace-theme", "light");
+
+    render(<App />);
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    expect(screen.getByRole("button", { name: "Switch to dark mode" })).toBeInTheDocument();
   });
 
   it("auto-selects the existing single-home deployment", async () => {

@@ -1,8 +1,10 @@
 /* ============================================================
-   codex-trace — Dark theme
+   codex-trace themes (dark by default)
    ============================================================ */
 
 :root {
+  color-scheme: dark;
+
   /* Background */
   --bg: #1a1a2e;
   --bg-surface: #16213e;
@@ -87,6 +89,62 @@
   /* Misc */
   --scrollbar-thumb: #444466;
   --scrollbar-track: transparent;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f7f8fa;
+  --bg-surface: #eef1f5;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e1e7ef;
+  --bg-selected: #dbeafe;
+  --picker-selected-bg: #dbeafe;
+
+  --text-primary: #20242c;
+  --text-secondary: #596273;
+  --text-dim: #6b7280;
+  --text-muted: #8992a3;
+  --text-bright: #111827;
+
+  --accent: #1769aa;
+  --info: #2563eb;
+  --error: #c62828;
+  --border: #c5ccd7;
+
+  --model-opus: #a43b65;
+  --model-sonnet: #1769aa;
+  --model-haiku: #287a3f;
+  --context-ok: #287a3f;
+  --context-warn: #b45309;
+  --context-crit: #c62828;
+  --ongoing: #3f7f18;
+  --git-branch: #7c3aad;
+  --token-high: #b45309;
+
+  --icon-claude: #8a6500;
+  --icon-codex: #087f5b;
+  --icon-user: #1769aa;
+  --icon-system: #687083;
+  --icon-warning: #b45309;
+  --icon-thinking: #8a6d00;
+  --icon-output: #1c6f9e;
+  --icon-tool: #6556b3;
+  --icon-hook: #287a3f;
+  --icon-tokens: #8a6500;
+  --icon-duration: #687083;
+  --icon-agents: #1c6f9e;
+  --icon-spawn: #7c3aad;
+  --icon-search: #1769aa;
+  --icon-edit: #8a6d00;
+  --icon-read: #287a3f;
+  --icon-bash: #6556b3;
+  --icon-web: #1769aa;
+  --icon-mcp: #7c3aad;
+  --icon-cron: #687083;
+  --icon-git: #7c3aad;
+  --agent-panel: #1c6f9e;
+  --scrollbar-thumb: #aeb7c5;
 }
 
 /* ---- Icon colors ---- */
@@ -782,6 +840,10 @@ body {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+.view-toolbar__theme-toggle svg {
+  font-size: 14px;
 }
 
 .view-toolbar__spacer {

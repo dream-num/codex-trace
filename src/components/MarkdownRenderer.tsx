@@ -1,8 +1,9 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { formatJson } from "../lib/format";
+import { useCurrentTheme } from "../hooks/useTheme";
 
 function isPureJson(s: string): boolean {
   const t = s.trimStart();
@@ -16,9 +17,12 @@ function isPureJson(s: string): boolean {
 }
 
 export function MarkdownRenderer({ content }: { content: string }) {
+  const theme = useCurrentTheme();
+  const syntaxTheme = theme === "light" ? oneLight : oneDark;
+
   if (isPureJson(content)) {
     return (
-      <SyntaxHighlighter language="json" style={oneDark} PreTag="div">
+      <SyntaxHighlighter language="json" style={syntaxTheme} PreTag="div">
         {formatJson(content)}
       </SyntaxHighlighter>
     );
@@ -34,7 +38,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
           const code = String(children).replace(/\n$/, "");
           if (lang) {
             return (
-              <SyntaxHighlighter language={lang} style={oneDark} PreTag="div">
+              <SyntaxHighlighter language={lang} style={syntaxTheme} PreTag="div">
                 {code}
               </SyntaxHighlighter>
             );

@@ -1,4 +1,4 @@
-// Theme constants — dark theme colors for codex-trace.
+// Semantic colors used by inline styles. CSS variables keep them theme-aware.
 
 export const colors = {
   // Background
@@ -50,15 +50,15 @@ export const colors = {
 
 export function getModelColor(model: string): string {
   const m = model.toLowerCase();
-  if (m.startsWith("o")) return colors.modelO;
-  if (m.includes("gpt-5") || m.includes("gpt5")) return colors.modelGpt5;
-  return colors.modelGpt4;
+  if (m.startsWith("o")) return "var(--model-opus)";
+  if (m.includes("gpt-5") || m.includes("gpt5")) return "var(--model-haiku)";
+  return "var(--model-sonnet)";
 }
 
 export function getContextColor(pct: number): string {
-  if (pct < 50) return colors.contextOk;
-  if (pct < 80) return colors.contextWarn;
-  return colors.contextCrit;
+  if (pct < 50) return "var(--context-ok)";
+  if (pct < 80) return "var(--context-warn)";
+  return "var(--context-crit)";
 }
 
 // Spinner frames (braille)
