@@ -4,6 +4,7 @@ import { useSession } from "./hooks/useSession";
 import { usePicker } from "./hooks/usePicker";
 import { useCodexHomes } from "./hooks/useCodexHomes";
 import { useToggleSet } from "./hooks/useToggleSet";
+import { ThemeContext, useTheme } from "./hooks/useTheme";
 import { useKeyboard } from "./hooks/useKeyboard";
 import { SidebarTree } from "./components/SidebarTree";
 import { SessionPicker } from "./components/SessionPicker";
@@ -30,6 +31,7 @@ function findToolByCallId(tools: CodexToolCall[], callId: string): CodexToolCall
 }
 
 export function App() {
+  const { theme, toggleTheme } = useTheme();
   const [view, setView] = useState<ViewState>("homes");
   const [selectedTurn, setSelectedTurn] = useState(0);
   const [pickerSelected, setPickerSelected] = useState(0);
@@ -222,128 +224,132 @@ export function App() {
   });
 
   return (
-    <div className="app">
-      {/* Info bar — only when session loaded and not in picker */}
-      {session.sessionPath && view !== "picker" && session.session && (
-        <InfoBar session={session.session} />
-      )}
-
-      {/* View toolbar */}
-      <ViewToolbar
-        view={view}
-        hasSession={!!session.sessionPath}
-        activeHomeName={codexHomes.activeHome?.name ?? null}
-        canSwitchHomes={codexHomes.homes.length > 1}
-        canOpenSettings={view !== "homes" && !codexHomes.multiHomeEnabled}
-        onGoToSessions={goToSessions}
-        onSwitchHomes={() => void handleSwitchHomes()}
-        onExpandAll={expandAll}
-        onCollapseAll={collapseAll}
-        onOpenSettings={() => setShowSettings(true)}
-      />
-
-      <div className="app-body">
-        {/* Left sidebar */}
-        {view !== "homes" && (
-          <>
-            <div className="app__sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
-              <div className="app__sidebar-header">
-                <span className="app__sidebar-title">SESSIONS</span>
-              </div>
-              <SidebarTree
-                sessions={picker.allSessions}
-                selectedPath={session.sessionPath || null}
-                collapsedDates={collapsedDates}
-                onSelectSession={handleSelectSession}
-                onToggleDate={handleToggleDate}
-              />
-            </div>
-
-            <ResizeHandle onResize={setSidebarWidth} />
-          </>
+    <ThemeContext.Provider value={theme}>
+      <div className="app">
+        {/* Info bar — only when session loaded and not in picker */}
+        {session.sessionPath && view !== "picker" && session.session && (
+          <InfoBar session={session.session} />
         )}
 
-        {/* Main content */}
-        <div className="main-content">
-          {view === "homes" && (
-            <CodexHomeSelector
-              homes={codexHomes.homes}
-              loading={codexHomes.loading}
-              error={codexHomes.error}
-              selectedIndex={codexHomes.selectedIndex}
-              onSelect={(home) => void handleSelectHome(home)}
-              onRetry={() => void discoverHomes(true)}
-            />
+        {/* View toolbar */}
+        <ViewToolbar
+          view={view}
+          hasSession={!!session.sessionPath}
+          activeHomeName={codexHomes.activeHome?.name ?? null}
+          canSwitchHomes={codexHomes.homes.length > 1}
+          canOpenSettings={view !== "homes" && !codexHomes.multiHomeEnabled}
+          onGoToSessions={goToSessions}
+          onSwitchHomes={() => void handleSwitchHomes()}
+          onExpandAll={expandAll}
+          onCollapseAll={collapseAll}
+          onOpenSettings={() => setShowSettings(true)}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
+
+        <div className="app-body">
+          {/* Left sidebar */}
+          {view !== "homes" && (
+            <>
+              <div className="app__sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
+                <div className="app__sidebar-header">
+                  <span className="app__sidebar-title">SESSIONS</span>
+                </div>
+                <SidebarTree
+                  sessions={picker.allSessions}
+                  selectedPath={session.sessionPath || null}
+                  collapsedDates={collapsedDates}
+                  onSelectSession={handleSelectSession}
+                  onToggleDate={handleToggleDate}
+                />
+              </div>
+
+              <ResizeHandle onResize={setSidebarWidth} />
+            </>
           )}
 
-          {view === "picker" && (
-            <SessionPicker
-              sessions={picker.sessions}
-              loading={picker.loading}
-              searchQuery={picker.searchQuery}
-              selectedIndex={pickerSelected}
-              onSelectSession={handleSelectSession}
-              onSearchChange={picker.setSearchQuery}
-            />
-          )}
+          {/* Main content */}
+          <div className="main-content">
+            {view === "homes" && (
+              <CodexHomeSelector
+                homes={codexHomes.homes}
+                loading={codexHomes.loading}
+                error={codexHomes.error}
+                selectedIndex={codexHomes.selectedIndex}
+                onSelect={(home) => void handleSelectHome(home)}
+                onRetry={() => void discoverHomes(true)}
+              />
+            )}
 
-          {view === "list" && session.loading && (
-            <div className="app__loading">Loading session…</div>
-          )}
+            {view === "picker" && (
+              <SessionPicker
+                sessions={picker.sessions}
+                loading={picker.loading}
+                searchQuery={picker.searchQuery}
+                selectedIndex={pickerSelected}
+                onSelectSession={handleSelectSession}
+                onSearchChange={picker.setSearchQuery}
+              />
+            )}
 
-          {view === "list" && !session.loading && session.session && (
-            <TurnList
-              turns={turns}
-              selectedIndex={selectedTurn}
-              onSelectTurn={(i) => {
-                setSelectedTurn(i);
-                setView("detail");
-              }}
-            />
-          )}
+            {view === "list" && session.loading && (
+              <div className="app__loading">Loading session…</div>
+            )}
 
-          {view === "detail" && turns[selectedTurn] && (
-            <TurnDetail
-              turn={turns[selectedTurn]}
-              expanded={expandedTools}
-              onToggle={toggleTool}
-              onBack={() => setView("list")}
-              openWorkerCallId={workerPanelCallId}
-              onOpenWorkerPanel={handleOpenWorkerPanel}
-            />
+            {view === "list" && !session.loading && session.session && (
+              <TurnList
+                turns={turns}
+                selectedIndex={selectedTurn}
+                onSelectTurn={(i) => {
+                  setSelectedTurn(i);
+                  setView("detail");
+                }}
+              />
+            )}
+
+            {view === "detail" && turns[selectedTurn] && (
+              <TurnDetail
+                turn={turns[selectedTurn]}
+                expanded={expandedTools}
+                onToggle={toggleTool}
+                onBack={() => setView("list")}
+                openWorkerCallId={workerPanelCallId}
+                onOpenWorkerPanel={handleOpenWorkerPanel}
+              />
+            )}
+          </div>
+
+          {view === "detail" && workerPanelTool?.worker_session && (
+            <>
+              <ResizeHandle onResize={setWorkerPanelWidth} side="right" />
+              <WorkerPanel
+                session={workerPanelTool.worker_session}
+                sourceTool={workerPanelTool}
+                activeWorkerCallId={workerPanelCallId}
+                style={{ flex: `0 0 ${workerPanelWidth}px`, maxWidth: workerPanelWidth }}
+                onClose={closeWorkerPanel}
+                onOpenWorker={handleOpenWorkerPanel}
+              />
+            </>
           )}
         </div>
 
-        {view === "detail" && workerPanelTool?.worker_session && (
-          <>
-            <ResizeHandle onResize={setWorkerPanelWidth} side="right" />
-            <WorkerPanel
-              session={workerPanelTool.worker_session}
-              sourceTool={workerPanelTool}
-              activeWorkerCallId={workerPanelCallId}
-              style={{ flex: `0 0 ${workerPanelWidth}px`, maxWidth: workerPanelWidth }}
-              onClose={closeWorkerPanel}
-              onOpenWorker={handleOpenWorkerPanel}
-            />
-          </>
+        {/* Bottom keybind bar */}
+        <KeybindBar
+          view={view}
+          showHints={showKeybinds}
+          onToggle={() => setShowKeybinds((p) => !p)}
+        />
+
+        {showSettings && !codexHomes.multiHomeEnabled && (
+          <SettingsModal
+            onClose={() => setShowSettings(false)}
+            onSaved={(dir) => {
+              discoverSessions(dir);
+            }}
+          />
         )}
       </div>
-
-      {/* Bottom keybind bar */}
-      <KeybindBar
-        view={view}
-        showHints={showKeybinds}
-        onToggle={() => setShowKeybinds((p) => !p)}
-      />
-
-      {showSettings && !codexHomes.multiHomeEnabled && (
-        <SettingsModal
-          onClose={() => setShowSettings(false)}
-          onSaved={(dir) => {
-            discoverSessions(dir);
-          }}
-        />
-      )}
-    </div>
+    </ThemeContext.Provider>
   );
 }

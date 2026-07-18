@@ -1,5 +1,7 @@
 import type { ViewState } from "../../shared/types";
 import { IoMdSettings } from "react-icons/io";
+import { MdDarkMode, MdLightMode } from "react-icons/md";
+import type { Theme } from "../hooks/useTheme";
 
 interface ViewToolbarProps {
   view: ViewState;
@@ -12,6 +14,8 @@ interface ViewToolbarProps {
   onExpandAll: () => void;
   onCollapseAll: () => void;
   onOpenSettings: () => void;
+  theme: Theme;
+  onToggleTheme: () => void;
 }
 
 function scrollContent(to: "top" | "bottom") {
@@ -30,6 +34,8 @@ export function ViewToolbar({
   onExpandAll,
   onCollapseAll,
   onOpenSettings,
+  theme,
+  onToggleTheme,
 }: ViewToolbarProps) {
   return (
     <div className="view-toolbar">
@@ -62,6 +68,15 @@ export function ViewToolbar({
         </>
       )}
       <span className="view-toolbar__spacer" />
+      <button
+        className="view-toolbar__btn view-toolbar__theme-toggle"
+        onClick={onToggleTheme}
+        aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+        title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      >
+        {theme === "dark" ? <MdLightMode /> : <MdDarkMode />}
+        <span>{theme === "dark" ? "Light" : "Dark"}</span>
+      </button>
       {canOpenSettings && (
         <button className="view-toolbar__btn" onClick={onOpenSettings} title="Settings (,) ">
           <IoMdSettings />
