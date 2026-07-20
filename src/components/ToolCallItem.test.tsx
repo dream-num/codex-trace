@@ -147,6 +147,19 @@ describe("ToolCallItem", () => {
     expect(screen.getByText("500ms")).toBeInTheDocument();
   });
 
+  it("renders the invocation time in the header", () => {
+    render(
+      <ToolCallItem
+        tool={makeTool()}
+        timestamp="2026-04-27T04:53:03Z"
+        expanded={false}
+        onToggle={vi.fn()}
+      />,
+    );
+    const time = screen.getByTitle("2026-04-27T04:53:03Z");
+    expect(time).toHaveTextContent(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  });
+
   it("places duration left of the popout button in DOM order", () => {
     const { container } = render(
       <ToolCallItem tool={makeTool({ duration_secs: 0.5 })} expanded={false} onToggle={vi.fn()} />,

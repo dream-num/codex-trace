@@ -164,6 +164,7 @@ export function WorkerPanel({
                         <ToolCallItem
                           key={key}
                           tool={tool}
+                          timestamp={turn.tool_call_timestamps?.[toolIndex]}
                           expanded={expandedTools.has(key)}
                           onToggle={() => toggleTool(key)}
                           isWorkerOpen={tool.call_id === activeWorkerCallId}

@@ -3202,6 +3202,12 @@ body {
   font-size: 11px;
   color: var(--text-dim);
 }
+.tool-call__time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  margin-left: auto;
+}
 .tool-call__chevron {
   font-size: 10px;
   color: var(--text-dim);
