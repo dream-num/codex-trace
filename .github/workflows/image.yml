@@ -8,6 +8,8 @@ on:
         required: true
         default: "latest"
 
+run-name: Build image ${{ inputs.version }}
+
 jobs:
   build:
     name: Build & Push
