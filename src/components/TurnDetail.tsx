@@ -133,6 +133,7 @@ export function TurnDetail({
                   <ToolCallItem
                     key={`t-${item.tool.call_id || item.index}`}
                     tool={item.tool}
+                    timestamp={turn.tool_call_timestamps?.[item.index]}
                     expanded={expanded.has(item.index)}
                     onToggle={() => onToggle(item.index)}
                     isWorkerOpen={item.tool.call_id === openWorkerCallId}

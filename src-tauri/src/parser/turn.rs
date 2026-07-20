@@ -113,6 +113,10 @@ pub struct CodexTurn {
     /// agent messages instead of dumping all tool calls at the end of the turn.
     #[serde(default)]
     pub tool_call_orders: Vec<usize>,
+    /// Start timestamp for each tool call, parallel to `tool_calls`. Empty strings represent
+    /// legacy or malformed entries that did not carry an outer JSONL timestamp.
+    #[serde(default)]
+    pub tool_call_timestamps: Vec<String>,
     pub final_answer: Option<String>,
     pub total_tokens: Option<TokenInfo>,
     pub model: Option<String>,
@@ -151,6 +155,7 @@ impl CodexTurn {
             agent_messages: Vec::new(),
             tool_calls: Vec::new(),
             tool_call_orders: Vec::new(),
+            tool_call_timestamps: Vec::new(),
             final_answer: None,
             total_tokens: None,
             model: None,
@@ -187,10 +192,18 @@ pub fn build_turns(entries: &[RawEntry]) -> Vec<CodexTurn> {
     // Gives tool calls the same kind of order index as agent messages so the two can be
     // interleaved chronologically in the UI.
     let mut call_order: HashMap<String, usize> = HashMap::new();
+    // First outer JSONL timestamp for each tool call. A call can have several entries (start,
+    // output, typed end event); the first one is the time the tool was invoked.
+    let mut call_timestamp: HashMap<String, String> = HashMap::new();
 
     for (index, entry) in entries.iter().enumerate() {
         if let Some(call_id) = call_id_of(entry) {
-            call_order.entry(call_id).or_insert(index);
+            call_order.entry(call_id.clone()).or_insert(index);
+            if let Some(timestamp) = entry.timestamp.as_deref().filter(|ts| !ts.is_empty()) {
+                call_timestamp
+                    .entry(call_id)
+                    .or_insert_with(|| timestamp.to_string());
+            }
         }
         match entry.entry_type.as_str() {
             "event_msg" => {
@@ -234,6 +247,8 @@ pub fn build_turns(entries: &[RawEntry]) -> Vec<CodexTurn> {
             for tc in &builder.finalized {
                 let order = call_order.get(&tc.call_id).copied().unwrap_or(usize::MAX);
                 turn.tool_call_orders.push(order);
+                let timestamp = call_timestamp.get(&tc.call_id).cloned().unwrap_or_default();
+                turn.tool_call_timestamps.push(timestamp);
             }
             turn.tool_calls.extend(builder.finalized);
         }
@@ -869,24 +884,7 @@ fn handle_response_item(
 
         "custom_tool_call_output" => {
             let call_id = str_field(payload, "call_id");
-            // output field is a JSON string: {"output":"...","metadata":{"exit_code":N,...}}
-            let raw_output = payload.get("output").and_then(|v| v.as_str()).unwrap_or("");
-            let output = serde_json::from_str::<Value>(raw_output)
-                .ok()
-                .and_then(|v| {
-                    v.get("output")
-                        .and_then(|o| o.as_str())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_else(|| raw_output.to_string());
-            let exit_code = serde_json::from_str::<Value>(raw_output)
-                .ok()
-                .and_then(|v| {
-                    v.get("metadata")
-                        .and_then(|m| m.get("exit_code"))
-                        .and_then(|c| c.as_i64())
-                        .map(|c| c as i32)
-                });
+            let (output, exit_code) = parse_custom_tool_output(payload.get("output"));
             builder.finalize_custom_tool_output(&call_id, &output, exit_code);
         }
 
@@ -1412,6 +1410,64 @@ fn spawn_from_function_call_output(
     })
 }
 
+/// Parse both custom-tool output shapes:
+/// - legacy stringified envelope: `{"output":"...","metadata":{"exit_code":0}}`
+/// - current content array: `[{"type":"input_text","text":"..."}, ...]`
+fn parse_custom_tool_output(value: Option<&Value>) -> (String, Option<i32>) {
+    let Some(value) = value else {
+        return (String::new(), None);
+    };
+
+    if let Value::String(raw) = value {
+        if let Ok(decoded) = serde_json::from_str::<Value>(raw) {
+            if let Some(output) = decoded.get("output") {
+                return (
+                    extract_tool_output_text(output),
+                    custom_tool_exit_code(&decoded),
+                );
+            }
+        }
+        return (raw.clone(), None);
+    }
+
+    if let Some(output) = value.get("output") {
+        return (
+            extract_tool_output_text(output),
+            custom_tool_exit_code(value),
+        );
+    }
+
+    (
+        extract_tool_output_text(value),
+        custom_tool_exit_code(value),
+    )
+}
+
+fn extract_tool_output_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                Value::String(text) => Some(text.as_str()),
+                Value::Object(_) => item.get("text").and_then(Value::as_str),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+        Value::Null => String::new(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    }
+}
+
+fn custom_tool_exit_code(value: &Value) -> Option<i32> {
+    value
+        .get("metadata")
+        .and_then(|metadata| metadata.get("exit_code"))
+        .and_then(Value::as_i64)
+        .and_then(|code| i32::try_from(code).ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1444,6 +1500,8 @@ mod tests {
         assert_eq!(turn.agent_messages.len(), 2);
         assert_eq!(turn.tool_calls.len(), 1);
         assert_eq!(turn.tool_call_orders.len(), turn.tool_calls.len());
+        assert_eq!(turn.tool_call_timestamps.len(), turn.tool_calls.len());
+        assert_eq!(turn.tool_call_timestamps[0], "2026-04-27T04:53:03Z");
 
         let first_msg_order = turn.agent_messages[0].order;
         let second_msg_order = turn.agent_messages[1].order;
@@ -2129,6 +2187,29 @@ mod tests {
         assert_eq!(changes.as_array().unwrap().len(), 1);
         assert_eq!(changes[0]["path"], "src/main.rs");
         assert_eq!(changes[0]["type"], "modified");
+    }
+
+    #[test]
+    fn custom_tool_call_content_array_output_is_linked_by_call_id() {
+        let entries = entries(&[
+            r#"{"timestamp":"2026-07-17T11:42:00Z","type":"session_meta","payload":{"id":"custom-output","timestamp":"2026-07-17T11:42:00Z"}}"#,
+            r#"{"timestamp":"2026-07-17T11:42:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-07-17T11:42:02Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call_exec","name":"exec","input":"text(r.output);"}}"#,
+            r#"{"timestamp":"2026-07-17T11:42:03Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_exec","output":[{"type":"input_text","text":"Script completed\n"},{"type":"input_text","text":"Output:\nhello\n"}]}}"#,
+            r#"{"timestamp":"2026-07-17T11:42:04Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1784288524}}"#,
+        ]);
+
+        let turns = build_turns(&entries);
+
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].tool_calls.len(), 1);
+        let tool = &turns[0].tool_calls[0];
+        assert_eq!(tool.call_id, "call_exec");
+        assert_eq!(tool.name, "exec");
+        assert_eq!(
+            tool.output.as_deref(),
+            Some("Script completed\nOutput:\nhello\n")
+        );
     }
 
     // Codex v0.129.0 (PR #20463): ApplyPatchEnd is now explicitly stored in limited

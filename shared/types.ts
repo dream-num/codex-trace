@@ -155,6 +155,9 @@ export interface CodexTurn {
   /** Display-order index for each tool call, parallel to `tool_calls` (same length/order).
    * Same scale as `AgentMessage.order`. Absent for old cached data. */
   tool_call_orders?: number[];
+  /** Invocation timestamp for each tool call, parallel to `tool_calls` (same length/order).
+   * Absent for old cached data. */
+  tool_call_timestamps?: string[];
   final_answer: string | null;
   total_tokens: TokenInfo | null;
   model: string | null;

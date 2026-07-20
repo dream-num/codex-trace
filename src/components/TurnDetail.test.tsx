@@ -89,6 +89,21 @@ describe("TurnDetail", () => {
     expect(screen.getByText("40.0k tok · 1m")).toBeInTheDocument();
   });
 
+  it("shows each tool call's invocation time", () => {
+    renderTurnDetail(
+      makeTurn({
+        agent_messages: [],
+        tool_calls: [makeTool()],
+        tool_call_timestamps: ["2026-04-27T04:53:03Z"],
+        final_answer: null,
+      }),
+    );
+
+    expect(screen.getByTitle("2026-04-27T04:53:03Z")).toHaveTextContent(
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
+    );
+  });
+
   it("omits context-left metadata when last-token usage is unavailable", () => {
     renderTurnDetail(
       makeTurn({
