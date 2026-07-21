@@ -24,6 +24,7 @@ function makeTool(overrides: Partial<CodexToolCall> = {}): CodexToolCall {
     web_url: null,
     image_prompt: null,
     image_file_path: null,
+    image_outputs: [],
     worker_session: null,
     status: "completed",
     subagent_id: null,
@@ -112,6 +113,36 @@ describe("ToolCallItem", () => {
   it("hides command and output when collapsed", () => {
     render(<ToolCallItem tool={makeTool()} expanded={false} onToggle={vi.fn()} />);
     expect(screen.queryByText("hello output")).not.toBeInTheDocument();
+  });
+
+  it("renders inline Base64 tool output images when expanded", () => {
+    render(
+      <ToolCallItem
+        tool={makeTool({
+          image_outputs: [{ url: "data:image/png;base64,abc123", detail: "high" }],
+        })}
+        expanded={true}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    const image = screen.getByRole("img", { name: "Tool output image 1" });
+    expect(image).toHaveAttribute("src", "data:image/png;base64,abc123");
+    expect(image).toHaveAttribute("loading", "lazy");
+  });
+
+  it("does not render inline images while collapsed", () => {
+    render(
+      <ToolCallItem
+        tool={makeTool({
+          image_outputs: [{ url: "data:image/webp;base64,def456", detail: null }],
+        })}
+        expanded={false}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
   it("shows the exit code in the header", () => {
@@ -500,6 +531,7 @@ describe("ToolCallItem", () => {
             exit_code: null,
             image_prompt: "a sunset over mountains",
             image_file_path: null,
+            image_outputs: [],
           })}
           expanded={false}
           onToggle={vi.fn()}

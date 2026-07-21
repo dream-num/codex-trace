@@ -53,6 +53,9 @@ pub struct ToolCall {
     /// Codex v0.138.0 (PRs #25944, #25947): saved file path exposed by image_generation and
     /// local image attachment results. Absent for pre-v0.138.0 sessions and non-image calls.
     pub image_file_path: Option<String>,
+    /// Images returned as structured tool-output blocks, including inline Base64 data URLs.
+    #[serde(default)]
+    pub image_outputs: Vec<ImageOutput>,
     pub worker_session: Option<Box<super::session::CodexSession>>,
     pub status: String,
     /// Codex v0.134.0 (PR #22882): subagent session ID from hook input identity fields.
@@ -61,6 +64,12 @@ pub struct ToolCall {
     /// Codex v0.134.0 (PR #22882): subagent human-readable name from hook input identity fields.
     /// Null for parent-agent tool calls and sessions from pre-v0.134.0.
     pub subagent_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ImageOutput {
+    pub url: String,
+    pub detail: Option<String>,
 }
 
 /// A pending (not yet finalized) tool call — waiting for its end event.
@@ -179,6 +188,7 @@ impl ToolCallBuilder {
                 web_url: None,
                 image_prompt: None,
                 image_file_path: None,
+                image_outputs: Vec::new(),
                 worker_session: None,
                 status: if exit_code.unwrap_or(1) == 0 {
                     "completed".to_string()
@@ -188,6 +198,21 @@ impl ToolCallBuilder {
                 subagent_id: None,
                 subagent_name: None,
             });
+        }
+    }
+
+    /// Attach structured images after textual output has finalized the matching call.
+    pub fn attach_image_outputs(&mut self, call_id: &str, images: Vec<ImageOutput>) {
+        if images.is_empty() {
+            return;
+        }
+        if let Some(tool_call) = self
+            .finalized
+            .iter_mut()
+            .rev()
+            .find(|tool_call| tool_call.call_id == call_id)
+        {
+            tool_call.image_outputs.extend(images);
         }
     }
 
@@ -296,6 +321,7 @@ impl ToolCallBuilder {
                     web_url: None,
                     image_prompt,
                     image_file_path,
+                    image_outputs: Vec::new(),
                     worker_session: None,
                     status: "completed".to_string(),
                     subagent_id: None,
@@ -325,6 +351,7 @@ impl ToolCallBuilder {
                     web_url: None,
                     image_prompt: None,
                     image_file_path: None,
+                    image_outputs: Vec::new(),
                     worker_session: None,
                     status: spawn_agent_status(output),
                     subagent_id: None,
@@ -364,6 +391,7 @@ impl ToolCallBuilder {
                     web_url: None,
                     image_prompt: None,
                     image_file_path: None,
+                    image_outputs: Vec::new(),
                     worker_session: None,
                     status: "completed".to_string(),
                     subagent_id: None,
@@ -396,6 +424,7 @@ impl ToolCallBuilder {
                     web_url: None,
                     image_prompt: None,
                     image_file_path: None,
+                    image_outputs: Vec::new(),
                     worker_session: None,
                     status: "completed".to_string(),
                     subagent_id: None,
@@ -473,6 +502,7 @@ impl ToolCallBuilder {
                 web_url: None,
                 image_prompt: None,
                 image_file_path: None,
+                image_outputs: Vec::new(),
                 worker_session: None,
                 status: "completed".to_string(),
                 subagent_id: None,
@@ -600,6 +630,7 @@ impl ToolCallBuilder {
             web_url: None,
             image_prompt: None,
             image_file_path: None,
+            image_outputs: Vec::new(),
             worker_session: None,
             status,
             subagent_id,
@@ -673,6 +704,7 @@ impl ToolCallBuilder {
             web_url: None,
             image_prompt: None,
             image_file_path: None,
+            image_outputs: Vec::new(),
             worker_session: None,
             status: "completed".to_string(),
             subagent_id,
@@ -761,6 +793,7 @@ impl ToolCallBuilder {
             web_url: None,
             image_prompt: None,
             image_file_path: None,
+            image_outputs: Vec::new(),
             worker_session: None,
             status: str_field(payload, "status"),
             subagent_id,
@@ -795,6 +828,7 @@ impl ToolCallBuilder {
             web_url: None,
             image_prompt: None,
             image_file_path: None,
+            image_outputs: Vec::new(),
             worker_session: None,
             status: str_field(payload, "status"),
             subagent_id,
@@ -829,6 +863,7 @@ impl ToolCallBuilder {
             web_url: None,
             image_prompt: None,
             image_file_path: None,
+            image_outputs: Vec::new(),
             worker_session: None,
             status: "completed".to_string(),
             subagent_id,
@@ -863,6 +898,7 @@ impl ToolCallBuilder {
             web_url: None,
             image_prompt: None,
             image_file_path: None,
+            image_outputs: Vec::new(),
             worker_session: None,
             status: "completed".to_string(),
             subagent_id,
@@ -906,6 +942,7 @@ impl ToolCallBuilder {
             web_url,
             image_prompt: None,
             image_file_path: None,
+            image_outputs: Vec::new(),
             worker_session: None,
             status: "completed".to_string(),
             subagent_id,
@@ -959,6 +996,7 @@ impl ToolCallBuilder {
             web_url: None,
             image_prompt: None,
             image_file_path: None,
+            image_outputs: Vec::new(),
             worker_session: None,
             status,
             subagent_id,
@@ -1015,6 +1053,7 @@ impl ToolCallBuilder {
             web_url: None,
             image_prompt: None,
             image_file_path: None,
+            image_outputs: Vec::new(),
             worker_session: None,
             status: str_field(payload, "status"),
             subagent_id,
@@ -1046,6 +1085,7 @@ impl ToolCallBuilder {
                 web_url: None,
                 image_prompt: None,
                 image_file_path: None,
+                image_outputs: Vec::new(),
                 worker_session: None,
                 status: "unknown".to_string(),
                 subagent_id: None,
@@ -1103,6 +1143,7 @@ fn exec_tool_call_from_pending(
         web_url: None,
         image_prompt: None,
         image_file_path: None,
+        image_outputs: Vec::new(),
         worker_session: None,
         status: parsed_output.status,
         subagent_id: None,

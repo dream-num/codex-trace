@@ -27,6 +27,7 @@ function makeTool(overrides: Partial<CodexToolCall> = {}): CodexToolCall {
     web_url: null,
     image_prompt: null,
     image_file_path: null,
+    image_outputs: [],
     worker_session: null,
     status: "completed",
     subagent_id: null,

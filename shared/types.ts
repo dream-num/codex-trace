@@ -139,6 +139,8 @@ export interface CodexToolCall {
   image_prompt: string | null;
   /** Codex v0.138.0 (PRs #25944, #25947): saved file path for image_generation and local image attachment results. Null for pre-v0.138.0 sessions and non-image calls. */
   image_file_path: string | null;
+  /** Structured image blocks returned by tools, including inline Base64 data URLs. */
+  image_outputs: Array<{ url: string; detail: string | null }>;
   worker_session: CodexSession | null;
   status: string;
 }

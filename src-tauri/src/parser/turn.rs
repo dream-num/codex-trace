@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use super::entry::{parse_timestamp_secs, RawEntry};
 use super::spawn::parse_spawn_agent_output;
-use super::toolcall::{ToolCall, ToolCallBuilder};
+use super::toolcall::{ImageOutput, ToolCall, ToolCallBuilder};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -849,6 +849,7 @@ fn handle_response_item(
 
         "function_call_output" => {
             let call_id = str_field(payload, "call_id");
+            let image_outputs = extract_tool_output_images(payload.get("output"));
             let output = match payload.get("output") {
                 Some(Value::String(s)) => s.clone(),
                 Some(Value::Array(arr)) => arr
@@ -870,6 +871,7 @@ fn handle_response_item(
                 }
             }
             builder.add_function_call_output(&call_id, &output, file_path);
+            builder.attach_image_outputs(&call_id, image_outputs);
         }
 
         "custom_tool_call" => {
@@ -884,8 +886,10 @@ fn handle_response_item(
 
         "custom_tool_call_output" => {
             let call_id = str_field(payload, "call_id");
+            let image_outputs = extract_tool_output_images(payload.get("output"));
             let (output, exit_code) = parse_custom_tool_output(payload.get("output"));
             builder.finalize_custom_tool_output(&call_id, &output, exit_code);
+            builder.attach_image_outputs(&call_id, image_outputs);
         }
 
         // Codex v0.129.0 (PR #20540): apply_patch file changes moved from the
@@ -1458,6 +1462,60 @@ fn extract_tool_output_text(value: &Value) -> String {
         Value::Null => String::new(),
         other => serde_json::to_string(other).unwrap_or_default(),
     }
+}
+
+fn extract_tool_output_images(value: Option<&Value>) -> Vec<ImageOutput> {
+    fn collect(value: &Value, images: &mut Vec<ImageOutput>) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    collect(item, images);
+                }
+            }
+            Value::Object(object) => {
+                let item_type = object.get("type").and_then(Value::as_str);
+                if matches!(
+                    item_type,
+                    Some("input_image" | "output_image" | "image_url")
+                ) {
+                    let url = object.get("image_url").and_then(|image_url| {
+                        image_url
+                            .as_str()
+                            .or_else(|| image_url.get("url").and_then(Value::as_str))
+                    });
+                    if let Some(url) = url.filter(|url| {
+                        url.starts_with("data:image/")
+                            && url
+                                .split_once(',')
+                                .is_some_and(|(metadata, _)| metadata.ends_with(";base64"))
+                    }) {
+                        images.push(ImageOutput {
+                            url: url.to_string(),
+                            detail: object
+                                .get("detail")
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
+                        });
+                    }
+                }
+
+                // Older transcripts may wrap the actual image block in image_span/content.
+                if let Some(content) = object.get("content") {
+                    collect(content, images);
+                }
+                if let Some(output) = object.get("output") {
+                    collect(output, images);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut images = Vec::new();
+    if let Some(value) = value {
+        collect(value, &mut images);
+    }
+    images
 }
 
 fn custom_tool_exit_code(value: &Value) -> Option<i32> {
@@ -2153,6 +2211,34 @@ mod tests {
         assert_eq!(turns.len(), 1);
         assert_eq!(turns[0].status, TurnStatus::Complete);
         assert!(turns[0].tool_calls.is_empty());
+    }
+
+    #[test]
+    fn inline_base64_images_are_preserved_from_function_and_custom_tool_outputs() {
+        let entries = entries(&[
+            r#"{"timestamp":"2026-07-21T10:00:00Z","type":"session_meta","payload":{"id":"inline-images","timestamp":"2026-07-21T10:00:00Z"}}"#,
+            r#"{"timestamp":"2026-07-21T10:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            r#"{"timestamp":"2026-07-21T10:00:02Z","type":"response_item","payload":{"type":"function_call","name":"wait","call_id":"call_wait","arguments":"{}"}}"#,
+            r#"{"timestamp":"2026-07-21T10:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_wait","output":[{"type":"input_text","text":"done"},{"type":"input_image","image_url":"data:image/png;base64,abc123","detail":"high"}]}}"#,
+            r#"{"timestamp":"2026-07-21T10:00:04Z","type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"call_exec","input":"view image"}}"#,
+            r#"{"timestamp":"2026-07-21T10:00:05Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_exec","output":[{"type":"input_text","text":"viewed"},{"type":"image_url","image_url":{"url":"data:image/webp;base64,def456"}}]}}"#,
+            r#"{"timestamp":"2026-07-21T10:00:06Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","completed_at":1784628006}}"#,
+        ]);
+
+        let turns = build_turns(&entries);
+        assert_eq!(turns[0].tool_calls.len(), 2);
+        assert_eq!(turns[0].tool_calls[0].output.as_deref(), Some("done"));
+        assert_eq!(
+            turns[0].tool_calls[0].image_outputs,
+            vec![ImageOutput {
+                url: "data:image/png;base64,abc123".to_string(),
+                detail: Some("high".to_string()),
+            }]
+        );
+        assert_eq!(
+            turns[0].tool_calls[1].image_outputs[0].url,
+            "data:image/webp;base64,def456"
+        );
     }
 
     // Codex v0.129.0 (PR #20540): apply_patch file changes moved from patch_apply_end
