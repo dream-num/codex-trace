@@ -2292,6 +2292,11 @@ mod tests {
         let tool = &turns[0].tool_calls[0];
         assert_eq!(tool.call_id, "call_exec");
         assert_eq!(tool.name, "exec");
+        assert_eq!(tool.kind, ToolKind::ExecCommand);
+        assert_eq!(tool.status, "completed");
+        assert_eq!(tool.exit_code, None);
+        assert_eq!(tool.patch_success, None);
+        assert_eq!(tool.input_text.as_deref(), Some("text(r.output);"));
         assert_eq!(
             tool.output.as_deref(),
             Some("Script completed\nOutput:\nhello\n")

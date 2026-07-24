@@ -168,9 +168,15 @@ impl ToolCallBuilder {
         exit_code: Option<i32>,
     ) {
         if let Some(pending) = self.pending.remove(call_id) {
+            let kind = match pending.name.as_str() {
+                "apply_patch" => ToolKind::PatchApply,
+                "exec" => ToolKind::ExecCommand,
+                _ => ToolKind::Unknown,
+            };
+            let is_patch = kind == ToolKind::PatchApply;
             self.finalized.push(ToolCall {
                 call_id: call_id.to_string(),
-                kind: ToolKind::PatchApply,
+                kind,
                 name: pending.name,
                 arguments: pending.arguments,
                 input_text: pending.input_text,
@@ -182,7 +188,11 @@ impl ToolCallBuilder {
                 mcp_server: None,
                 mcp_tool: None,
                 plugin_id: None,
-                patch_success: exit_code.map(|c| c == 0),
+                patch_success: if is_patch {
+                    exit_code.map(|code| code == 0)
+                } else {
+                    None
+                },
                 patch_changes: None,
                 web_query: None,
                 web_url: None,
@@ -190,10 +200,9 @@ impl ToolCallBuilder {
                 image_file_path: None,
                 image_outputs: Vec::new(),
                 worker_session: None,
-                status: if exit_code.unwrap_or(1) == 0 {
-                    "completed".to_string()
-                } else {
-                    "failed".to_string()
+                status: match exit_code {
+                    None | Some(0) => "completed".to_string(),
+                    Some(_) => "failed".to_string(),
                 },
                 subagent_id: None,
                 subagent_name: None,

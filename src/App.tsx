@@ -17,6 +17,7 @@ import { ViewToolbar } from "./components/ViewToolbar";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SettingsModal } from "./components/SettingsModal";
 import { CodexHomeSelector } from "./components/CodexHomeSelector";
+import { readShareRoute, replaceShareRoute } from "./lib/shareRoute";
 
 function findToolByCallId(tools: CodexToolCall[], callId: string): CodexToolCall | null {
   for (const tool of tools) {
@@ -31,6 +32,7 @@ function findToolByCallId(tools: CodexToolCall[], callId: string): CodexToolCall
 }
 
 export function App() {
+  const initialShareRoute = useRef(readShareRoute());
   const { theme, toggleTheme } = useTheme();
   const [view, setView] = useState<ViewState>("homes");
   const [selectedTurn, setSelectedTurn] = useState(0);
@@ -41,6 +43,9 @@ export function App() {
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const [workerPanelWidth, setWorkerPanelWidth] = useState(380);
   const [workerPanelCallId, setWorkerPanelCallId] = useState<string | null>(null);
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(
+    initialShareRoute.current.sessionId,
+  );
 
   const session = useSession();
   const picker = usePicker();
@@ -70,10 +75,12 @@ export function App() {
   }, [clearTools]);
 
   const handleSelectHome = useCallback(
-    async (home: CodexHome) => {
+    async (home: CodexHome, linkedSessionId: string | null = null) => {
       await Promise.all([resetSession(), resetPicker()]);
       resetSourceUi();
+      setPendingSessionId(linkedSessionId);
       selectHome(home);
+      replaceShareRoute({ homeId: home.id, sessionId: linkedSessionId });
       setView("picker");
       await discoverSessions(home.sessions_dir);
     },
@@ -83,8 +90,15 @@ export function App() {
   const discoverHomes = useCallback(
     async (autoSelectSingle: boolean) => {
       const response = await fetchHomes();
-      if (response && autoSelectSingle && response.homes.length === 1) {
-        await handleSelectHome(response.homes[0]);
+      if (!response) return;
+
+      const linkedHome = initialShareRoute.current.homeId
+        ? response.homes.find((home) => home.id === initialShareRoute.current.homeId)
+        : null;
+      if (linkedHome) {
+        await handleSelectHome(linkedHome, initialShareRoute.current.sessionId);
+      } else if (autoSelectSingle && response.homes.length === 1) {
+        await handleSelectHome(response.homes[0], initialShareRoute.current.sessionId);
       } else {
         setView("homes");
       }
@@ -105,6 +119,8 @@ export function App() {
     await Promise.all([resetSession(), resetPicker()]);
     resetSourceUi();
     clearActiveHome();
+    setPendingSessionId(null);
+    replaceShareRoute({ homeId: null, sessionId: null });
     setView("homes");
     await fetchHomes();
   }, [clearActiveHome, fetchHomes, resetPicker, resetSession, resetSourceUi]);
@@ -118,13 +134,36 @@ export function App() {
 
   const handleSelectSession = useCallback(
     (info: CodexSessionInfo) => {
-      loadSession(info.path);
+      setPendingSessionId(null);
+      replaceShareRoute({ homeId: codexHomes.activeHome?.id ?? null, sessionId: info.id });
+      void loadSession(info.path);
       setView("list");
       setSelectedTurn(0);
       clearTools();
     },
-    [loadSession, clearTools],
+    [loadSession, clearTools, codexHomes.activeHome?.id],
   );
+
+  useEffect(() => {
+    if (
+      !pendingSessionId ||
+      !codexHomes.activeHome ||
+      picker.loading ||
+      picker.sessionsDir !== codexHomes.activeHome.sessions_dir
+    ) {
+      return;
+    }
+
+    const linkedSession = picker.allSessions.find((item) => item.id === pendingSessionId);
+    if (linkedSession) handleSelectSession(linkedSession);
+  }, [
+    pendingSessionId,
+    codexHomes.activeHome,
+    picker.loading,
+    picker.sessionsDir,
+    picker.allSessions,
+    handleSelectSession,
+  ]);
 
   const handleOpenDetail = useCallback((index: number) => {
     setSelectedTurn(index);
@@ -158,7 +197,10 @@ export function App() {
 
   const collapseAll = useCallback(() => clearTools(), [clearTools]);
 
-  const goToSessions = useCallback(() => setView("picker"), []);
+  const goToSessions = useCallback(() => {
+    setView("picker");
+    replaceShareRoute({ homeId: codexHomes.activeHome?.id ?? null, sessionId: null });
+  }, [codexHomes.activeHome?.id]);
 
   const closeWorkerPanel = useCallback(() => setWorkerPanelCallId(null), []);
 
@@ -207,7 +249,7 @@ export function App() {
         return;
       }
       if (view === "detail") setView("list");
-      else if (view === "list") setView("picker");
+      else if (view === "list") goToSessions();
     },
     q: () => {
       if (workerPanelCallId) {
@@ -215,7 +257,7 @@ export function App() {
         return;
       }
       if (view === "detail") setView("list");
-      else if (view === "list") setView("picker");
+      else if (view === "list") goToSessions();
     },
     ",": () => {
       if (!codexHomes.multiHomeEnabled) setShowSettings(true);

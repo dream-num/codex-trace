@@ -171,6 +171,26 @@ describe("ToolCallItem", () => {
     expect(container.querySelector(".tool-call--failed")).not.toBeInTheDocument();
   });
 
+  it("renders a custom exec without an exit code as a normal execution", () => {
+    const { container } = render(
+      <ToolCallItem
+        tool={makeTool({
+          name: "exec",
+          input_text: "const result = await tools.exec_command({ cmd: 'pwd' });",
+          command: null,
+          exit_code: null,
+          status: "completed",
+        })}
+        expanded={true}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector(".tool-call--failed")).not.toBeInTheDocument();
+    expect(container.querySelector(".icon--warning")).not.toBeInTheDocument();
+    expect(screen.getByText(/tools\.exec_command/)).toBeInTheDocument();
+  });
+
   it("renders formatted duration in the header", () => {
     render(
       <ToolCallItem tool={makeTool({ duration_secs: 0.5 })} expanded={false} onToggle={vi.fn()} />,
